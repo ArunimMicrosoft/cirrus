@@ -1,0 +1,231 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Azure Inventory — design tokens.
+ *
+ * Palette is tuned for long reading sessions:
+ *   • Warm off-white surfaces (never pure white) so the eyes don't reflect
+ *     as much light off the screen at typical brightness.
+ *   • Warm dark-gray text (never pure black) — reduces the harsh contrast
+ *     jump between glyphs and background.
+ *   • Muted Azure accent (68% saturation, not 90%) so blue chips, links,
+ *     and focus rings don't buzz.
+ *   • Dark mode lifts the background off #000 by ~10 lightness so trailing
+ *     edges don't strobe on OLED, and text sits at 88% grey instead of 100%
+ *     white — the same trick GitHub / Linear / Vercel use.
+ */
+
+@layer base {
+  :root {
+    --background: 40 20% 98%;
+    --foreground: 220 20% 20%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 20%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 20%;
+
+    --primary: 214 68% 46%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 94%;
+    --secondary-foreground: 220 22% 22%;
+
+    --muted: 220 13% 95%;
+    --muted-foreground: 220 10% 44%;
+
+    --accent: 214 40% 93%;
+    --accent-foreground: 220 22% 22%;
+
+    --destructive: 358 60% 48%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 156 45% 34%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 32 78% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 220 13% 89%;
+    --input: 220 13% 89%;
+    --ring: 214 68% 46%;
+
+    --radius: 0.5rem;
+
+    /* App shell tokens — the logged-in sidebar. Lifted off pure dark so the
+       jump between sidebar and main canvas is a graceful gradient, not a
+       hard contrast wall. */
+    --sidebar: 220 20% 15%;
+    --sidebar-foreground: 220 12% 90%;
+    --sidebar-muted: 220 10% 58%;
+    --sidebar-hover: 220 22% 20%;
+    --sidebar-active: 214 72% 62%;
+    --sidebar-border: 220 22% 22%;
+  }
+
+  .dark {
+    --background: 220 15% 11%;
+    --foreground: 220 12% 88%;
+
+    --card: 220 15% 14%;
+    --card-foreground: 220 12% 88%;
+
+    --popover: 220 15% 14%;
+    --popover-foreground: 220 12% 88%;
+
+    --primary: 214 72% 60%;
+    --primary-foreground: 220 25% 12%;
+
+    --secondary: 220 14% 20%;
+    --secondary-foreground: 220 12% 88%;
+
+    --muted: 220 14% 17%;
+    --muted-foreground: 220 10% 62%;
+
+    --accent: 214 30% 24%;
+    --accent-foreground: 220 12% 88%;
+
+    --destructive: 358 62% 60%;
+    --destructive-foreground: 220 25% 12%;
+
+    --success: 156 45% 55%;
+    --success-foreground: 220 25% 12%;
+
+    --warning: 32 82% 60%;
+    --warning-foreground: 220 25% 12%;
+
+    --border: 220 14% 22%;
+    --input: 220 14% 22%;
+    --ring: 214 72% 60%;
+
+    --sidebar: 220 20% 9%;
+    --sidebar-foreground: 220 12% 88%;
+    --sidebar-muted: 220 10% 58%;
+    --sidebar-hover: 220 20% 14%;
+    --sidebar-active: 214 72% 62%;
+    --sidebar-border: 220 20% 16%;
+  }
+
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family:
+      "Inter var", "Inter", ui-sans-serif, system-ui, -apple-system,
+      BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+      "Noto Sans", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Slightly lighter body weight + generous line-height for readability. */
+    font-size: 14px;
+    line-height: 1.55;
+    letter-spacing: -0.005em;
+  }
+  ::selection {
+    background-color: hsl(var(--primary) / 0.22);
+    color: hsl(var(--foreground));
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.4);
+    background-clip: content-box;
+  }
+
+  /* Display font for marketing surfaces — system serif stack, no network. */
+  .font-display {
+    font-family:
+      ui-serif, "Iowan Old Style", "Apple Garamond", "Baskerville",
+      "Times New Roman", "Droid Serif", Times, serif, "Apple Color Emoji",
+      "Segoe UI Emoji";
+    font-feature-settings: "kern", "liga", "clig", "calt";
+    letter-spacing: -0.022em;
+  }
+
+  .font-mono {
+    font-family:
+      ui-monospace, "SF Mono", "Cascadia Code", "Source Code Pro", Menlo,
+      Consolas, "DejaVu Sans Mono", monospace;
+  }
+
+  /* Reduce the visual weight of every card / bordered surface. Softer border,
+     softer shadow. Combined they make the app feel less rigid. */
+  html {
+    --tw-shadow-color: 220 20% 20%;
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  .sidebar-shell {
+    background-color: hsl(var(--sidebar));
+    color: hsl(var(--sidebar-foreground));
+    /* Very subtle top-left glow so the sidebar has depth without being
+       another card. Kept at 8% opacity — comfortable. */
+    background-image: radial-gradient(
+      ellipse 700px 300px at 0% -20%,
+      hsl(var(--primary) / 0.08),
+      transparent 70%
+    );
+  }
+  .sidebar-item {
+    @apply flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors;
+    color: hsl(var(--sidebar-foreground) / 0.78);
+  }
+  .sidebar-item:hover {
+    background-color: hsl(var(--sidebar-hover));
+    color: hsl(var(--sidebar-foreground));
+  }
+  .sidebar-item[data-active="true"] {
+    background-color: hsl(var(--sidebar-active) / 0.14);
+    color: hsl(var(--sidebar-active));
+    box-shadow: inset 2px 0 0 hsl(var(--sidebar-active));
+  }
+  .sidebar-group-label {
+    @apply px-2 pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-[0.11em];
+    color: hsl(var(--sidebar-muted));
+  }
+
+  /* Dot grid used behind marketing hero — very subtle to avoid noise. */
+  .dot-grid {
+    background-image: radial-gradient(
+      hsl(var(--foreground) / 0.06) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+    background-position: -1px -1px;
+  }
+}

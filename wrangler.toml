@@ -1,0 +1,17 @@
+name = "azure-inventory-web"
+compatibility_date = "2024-10-22"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = "./out"
+
+# ------------------------------------------------------------------
+# Session cookie encryption key.
+#
+# For local dev: put SESSION_SECRET into a .dev.vars file (gitignored).
+# For production: set it in the Cloudflare Pages dashboard under
+#   Settings -> Environment variables -> Production -> "Encrypt".
+# Generate a strong key with:
+#   node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+# ------------------------------------------------------------------
+[vars]
+# Non-secret vars go here if we add any later. Session secret is a secret,
+# not a plaintext var.

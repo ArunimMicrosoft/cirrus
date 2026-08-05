@@ -1,0 +1,54 @@
+name: Deploy to Cloudflare Pages
+
+# Auto-deploy on every push to main. Also runnable manually from the Actions tab.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: cf-pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build (static export)
+        run: npm run build
+        # The build writes to ./out per next.config.mjs (output: 'export').
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # `pages deploy` uploads ./out AND the sibling ./functions directory
+          # so the Pages Functions ship in the same deployment. Passing
+          # --branch=main marks it as a production deploy; other refs
+          # (feature branches / manual dispatch) become preview deployments.
+          command: >-
+            pages deploy out
+            --project-name=azure-inventory-web
+            --branch=${{ github.ref_name }}
+            --commit-hash=${{ github.sha }}
+            --commit-message="${{ github.event.head_commit.message || 'manual deploy' }}"
