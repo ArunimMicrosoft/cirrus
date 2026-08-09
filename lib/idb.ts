@@ -12,8 +12,9 @@
  */
 
 const DB_NAME = "aiu-drift";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = "snapshots";
+const BASELINE_STORE = "baselines";
 
 function isBrowser(): boolean {
   return typeof indexedDB !== "undefined" && typeof window !== "undefined";
@@ -29,6 +30,10 @@ function openDb(): Promise<IDBDatabase> {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         const store = db.createObjectStore(STORE, { keyPath: "key" });
+        store.createIndex("subscriptionId", "subscriptionId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(BASELINE_STORE)) {
+        const store = db.createObjectStore(BASELINE_STORE, { keyPath: "key" });
         store.createIndex("subscriptionId", "subscriptionId", { unique: false });
       }
     };
@@ -50,11 +55,11 @@ export interface StoredSnapshot {
   payload: unknown;
 }
 
-function tx(mode: IDBTransactionMode) {
+function tx(mode: IDBTransactionMode, storeName: string = STORE) {
   return openDb().then((db) => {
-    const t = db.transaction(STORE, mode);
+    const t = db.transaction(storeName, mode);
     return {
-      store: t.objectStore(STORE),
+      store: t.objectStore(storeName),
       done: new Promise<void>((res, rej) => {
         t.oncomplete = () => res();
         t.onerror = () => rej(t.error);
@@ -115,4 +120,98 @@ export async function deleteSnapshot(
   const { store, done } = await tx("readwrite");
   store.delete(keyFor(subscriptionId, name));
   await done;
+}
+
+/* ------------------------------------------------------------------
+ * Baselines — daily per-subscription rollup used by the anomaly detector.
+ *
+ * We keep one entry per (subscription, date) so we can build a rolling
+ * window over N days without unbounded growth. Old entries are pruned
+ * automatically when new ones are written.
+ * ------------------------------------------------------------------*/
+
+export interface BaselineMetrics {
+  vmCount: number;
+  diskCount: number;
+  orphanDisks: number;
+  orphanPips: number;
+  publicIpCount: number;
+  nsgCount: number;
+  riskyNsgRules: number;
+  storageCount: number;
+  publicStorage: number;
+  appServiceCount: number;
+  appServicesNoHttps: number;
+  sqlServerCount: number;
+  resourceGroupCount: number;
+  untaggedResourceGroups: number;
+}
+
+export interface StoredBaseline {
+  key: string;
+  subscriptionId: string;
+  /** Local calendar date (YYYY-MM-DD). One baseline per day. */
+  date: string;
+  timestamp: string;
+  metrics: BaselineMetrics;
+}
+
+const BASELINE_RETENTION_DAYS = 60;
+
+function baselineKey(subscriptionId: string, date: string): string {
+  return `${subscriptionId}::${date}`;
+}
+
+/**
+ * Write today's baseline for the given subscription. Idempotent — writing
+ * again on the same calendar day just updates the same row. Also prunes
+ * baselines older than BASELINE_RETENTION_DAYS.
+ */
+export async function putBaseline(
+  subscriptionId: string,
+  metrics: BaselineMetrics,
+): Promise<void> {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10);
+  const { store, done } = await tx("readwrite", BASELINE_STORE);
+  const record: StoredBaseline = {
+    key: baselineKey(subscriptionId, date),
+    subscriptionId,
+    date,
+    timestamp: now.toISOString(),
+    metrics,
+  };
+  store.put(record);
+
+  // Prune old entries.
+  const cutoff = new Date(now.getTime() - BASELINE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const idx = store.index("subscriptionId");
+  const req = idx.openCursor(IDBKeyRange.only(subscriptionId));
+  req.onsuccess = () => {
+    const cursor = req.result;
+    if (!cursor) return;
+    const rec = cursor.value as StoredBaseline;
+    if (rec.date < cutoffStr) cursor.delete();
+    cursor.continue();
+  };
+  await done;
+}
+
+/** Load every stored baseline for a subscription, newest first. */
+export async function listBaselines(
+  subscriptionId: string,
+): Promise<StoredBaseline[]> {
+  const { store, done } = await tx("readonly", BASELINE_STORE);
+  return new Promise<StoredBaseline[]>((resolve, reject) => {
+    const idx = store.index("subscriptionId");
+    const req = idx.getAll(subscriptionId);
+    req.onsuccess = () => {
+      const rows = (req.result as StoredBaseline[]).sort((a, b) =>
+        a.date < b.date ? 1 : -1,
+      );
+      done.then(() => resolve(rows)).catch(reject);
+    };
+    req.onerror = () => reject(req.error);
+  });
 }

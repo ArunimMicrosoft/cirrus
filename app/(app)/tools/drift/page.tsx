@@ -32,6 +32,12 @@ import { api } from "@/lib/api-client";
 import { ArmApi } from "@/lib/azure/arm";
 import { useSubscriptionStore } from "@/lib/hooks/use-subscription";
 import * as idb from "@/lib/idb";
+import {
+  classifyChange,
+  riskWeight,
+  type DriftRisk,
+  type ResourceType,
+} from "@/lib/ml/drift-risk";
 import type {
   AppService,
   Disk,
@@ -52,7 +58,7 @@ interface SnapshotPayload {
   webapps: Record<string, AppService>;
 }
 
-const RESOURCE_KEYS: Array<{ key: keyof SnapshotPayload; label: string }> = [
+const RESOURCE_KEYS: Array<{ key: keyof SnapshotPayload; label: ResourceType }> = [
   { key: "resourceGroups", label: "Resource Group" },
   { key: "vms", label: "Virtual Machine" },
   { key: "disks", label: "Disk" },
@@ -65,9 +71,11 @@ const RESOURCE_KEYS: Array<{ key: keyof SnapshotPayload; label: string }> = [
 interface DiffRow {
   id: string;
   change: "ADD" | "REMOVE" | "MODIFY";
-  type: string;
+  type: ResourceType;
   resource: string;
   detail: string;
+  risk: DriftRisk;
+  riskReason: string;
 }
 
 /**
@@ -91,23 +99,29 @@ function diffSnapshots(a: SnapshotPayload, b: SnapshotPayload): DiffRow[] {
 
     for (const k of afterKeys) {
       if (!beforeKeys.has(k)) {
+        const assessment = classifyChange("ADD", label, undefined, after[k]);
         rows.push({
           id: `add-${label}-${k}`,
           change: "ADD",
           type: label,
           resource: k,
           detail: "new resource",
+          risk: assessment.risk,
+          riskReason: assessment.reason,
         });
       }
     }
     for (const k of beforeKeys) {
       if (!afterKeys.has(k)) {
+        const assessment = classifyChange("REMOVE", label, before[k], undefined);
         rows.push({
           id: `rm-${label}-${k}`,
           change: "REMOVE",
           type: label,
           resource: k,
           detail: "resource removed",
+          risk: assessment.risk,
+          riskReason: assessment.reason,
         });
       }
     }
@@ -116,16 +130,21 @@ function diffSnapshots(a: SnapshotPayload, b: SnapshotPayload): DiffRow[] {
       const bStr = JSON.stringify(before[k]);
       const aStr = JSON.stringify(after[k]);
       if (bStr !== aStr) {
+        const assessment = classifyChange("MODIFY", label, before[k], after[k]);
         rows.push({
           id: `mod-${label}-${k}`,
           change: "MODIFY",
           type: label,
           resource: k,
           detail: propertyDelta(before[k], after[k]),
+          risk: assessment.risk,
+          riskReason: assessment.reason,
         });
       }
     }
   }
+  // Sort so RISKY floats to the top, then NOTABLE, then BENIGN.
+  rows.sort((x, y) => riskWeight(y.risk) - riskWeight(x.risk));
   return rows;
 }
 
@@ -291,11 +310,35 @@ export default function DriftPage() {
     );
   }, [before, after]);
 
-  const adds = diff.filter((d) => d.change === "ADD").length;
-  const removes = diff.filter((d) => d.change === "REMOVE").length;
-  const mods = diff.filter((d) => d.change === "MODIFY").length;
+  const riskyCount = diff.filter((d) => d.risk === "RISKY").length;
+  const notableCount = diff.filter((d) => d.risk === "NOTABLE").length;
+  const benignCount = diff.filter((d) => d.risk === "BENIGN").length;
 
   const diffColumns: DataColumn<DiffRow>[] = [
+    {
+      key: "risk",
+      header: "Risk",
+      accessor: (r) => r.risk,
+      cell: (r) => {
+        if (r.risk === "RISKY")
+          return (
+            <span title={r.riskReason}>
+              <Badge variant="destructive">RISKY</Badge>
+            </span>
+          );
+        if (r.risk === "NOTABLE")
+          return (
+            <span title={r.riskReason}>
+              <Badge variant="warning">NOTABLE</Badge>
+            </span>
+          );
+        return (
+          <span title={r.riskReason}>
+            <Badge variant="outline">benign</Badge>
+          </span>
+        );
+      },
+    },
     {
       key: "change",
       header: "Change",
@@ -315,12 +358,18 @@ export default function DriftPage() {
     },
     {
       key: "detail",
-      header: "Detail",
-      accessor: (r) => r.detail,
+      header: "Why it's flagged",
+      accessor: (r) => `${r.riskReason} · ${r.detail}`,
       cell: (r) => (
-        <span className="line-clamp-2 text-xs" title={r.detail}>
-          {r.detail}
-        </span>
+        <div className="text-xs">
+          <div className="font-medium">{r.riskReason}</div>
+          <div
+            className="mt-0.5 line-clamp-2 text-muted-foreground"
+            title={r.detail}
+          >
+            {r.detail}
+          </div>
+        </div>
       ),
     },
   ];
@@ -429,19 +478,21 @@ export default function DriftPage() {
           loading={snapshots.isLoading}
         />
         <StatCard
-          label="Additions"
-          value={adds}
-          deltaTone={adds > 0 ? "positive" : "default"}
+          label="Risky changes"
+          value={riskyCount}
+          delta="review now"
+          deltaTone={riskyCount > 0 ? "negative" : "positive"}
         />
         <StatCard
-          label="Removals"
-          value={removes}
-          deltaTone={removes > 0 ? "negative" : "default"}
+          label="Notable"
+          value={notableCount}
+          delta="worth a look"
+          deltaTone={notableCount > 0 ? "default" : "default"}
         />
         <StatCard
-          label="Modifications"
-          value={mods}
-          deltaTone={mods > 0 ? "negative" : "default"}
+          label="Benign"
+          value={benignCount}
+          delta="tags · lifecycle"
         />
       </div>
 
@@ -492,9 +543,11 @@ export default function DriftPage() {
                   title={`Drift: ${beforeName} → ${afterName}`}
                   rows={diff}
                   columns={[
+                    { header: "Risk", accessor: (r) => r.risk },
                     { header: "Change", accessor: (r) => r.change },
                     { header: "Type", accessor: (r) => r.type },
                     { header: "Resource", accessor: (r) => r.resource },
+                    { header: "Reason", accessor: (r) => r.riskReason },
                     { header: "Detail", accessor: (r) => r.detail },
                   ]}
                 />

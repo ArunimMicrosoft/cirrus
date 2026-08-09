@@ -22,7 +22,7 @@
  */
 
 import { z } from "zod";
-import { getArmToken } from "@/lib/azure/auth";
+import { getArmTokenForSession } from "@/lib/azure/auth";
 import { ArmApi } from "@/lib/azure/arm";
 import { errorJson, json, methodNotAllowed, requireSession } from "@/functions/_utils";
 import type { Env } from "@/functions/types";
@@ -50,11 +50,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   try {
-    const { token } = await getArmToken({
-      tenantId: session.tenantId,
-      clientId: session.clientId,
-      clientSecret: session.clientSecret,
-    });
+    const { token } = await getArmTokenForSession(session);
     const url = `https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=${ArmApi.resourceGraph}`;
     const resp = await fetch(url, {
       method: "POST",

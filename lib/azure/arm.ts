@@ -5,9 +5,6 @@
  * the Workers bundle small. All operations are read-only (GET / POST-for-query).
  */
 
-import { getArmToken, type ServicePrincipal } from "./auth";
-// Note: caches import not needed here; auth handles token caching.
-
 const ARM_BASE = "https://management.azure.com";
 
 export interface ArmRequestOptions {
@@ -36,14 +33,15 @@ export class ArmError extends Error {
 
 /**
  * Call ARM. `path` should start with a slash (e.g. `/subscriptions`).
+ * Callers pass a raw ARM access token — the SP vs delegated-user distinction
+ * lives one layer up in the session-aware token acquisition.
  * Throws ArmError on non-2xx responses.
  */
 export async function armFetch<T>(
-  sp: ServicePrincipal,
+  token: string,
   path: string,
   opts: ArmRequestOptions = {},
 ): Promise<T> {
-  const { token } = await getArmToken(sp);
   const url = new URL(`${ARM_BASE}${path.startsWith("/") ? path : `/${path}`}`);
   if (opts.apiVersion) url.searchParams.set("api-version", opts.apiVersion);
   if (opts.query) {
@@ -80,7 +78,7 @@ export async function armFetch<T>(
  * ARM endpoints that return `{ value, nextLink }` use this shape uniformly.
  */
 export async function armList<T>(
-  sp: ServicePrincipal,
+  token: string,
   path: string,
   opts: ArmRequestOptions = {},
 ): Promise<T[]> {
@@ -97,7 +95,6 @@ export async function armList<T>(
   }
 
   let nextUrl: string | null = firstUrl.toString();
-  const { token } = await getArmToken(sp);
 
   while (nextUrl) {
     const resp: Response = await fetch(nextUrl, {
@@ -143,6 +140,8 @@ export const ArmApi = {
   // Backwards-compat alias — deprecated, keep for a version, prefer explicit above.
   compute: "2023-04-02",
   network: "2023-11-01",
+  privateDnsZones: "2020-06-01",
+  dnsZones: "2018-05-01",
   storage: "2023-05-01",
   web: "2023-12-01",
   sql: "2023-08-01-preview",
@@ -155,4 +154,11 @@ export const ArmApi = {
   recoveryservicesBackup: "2023-06-01",
   reservations: "2022-11-01",
   resourceGraph: "2022-10-01",
+  // Cost Management / Consumption (read-only GET analytics: reservation
+  // recommendations, price sheets, usage). Reader includes */read, so no
+  // elevated cost role is required for these GET endpoints.
+  consumption: "2024-08-01",
+  // Cost Management Query (POST analytics query — read-only, cannot mutate).
+  // Requires the "Cost Management Reader" role (query is an /action, not /read).
+  costManagement: "2023-11-01",
 } as const;

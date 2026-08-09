@@ -22,12 +22,13 @@ export function Sidebar({ className }: { className?: string }) {
         href="/"
         className="flex h-14 items-center gap-2.5 border-b px-4 transition-colors hover:bg-white/[0.03]"
         style={{ borderColor: "hsl(var(--sidebar-border))" }}
+        title={BRAND.host}
       >
         <span className="font-display text-[20px] leading-none tracking-tight text-white">
           {BRAND.name}
         </span>
-        <span className="text-[9.5px] font-medium uppercase tracking-[0.14em] text-white/45">
-          {BRAND.descriptor}
+        <span className="hidden text-[9px] font-medium lowercase tracking-[0.06em] text-white/40 sm:inline">
+          {BRAND.host}
         </span>
       </Link>
 
@@ -70,7 +71,10 @@ export function Sidebar({ className }: { className?: string }) {
           Cannot create, modify, or delete Azure resources.
         </p>
         <p className="pt-1 text-[10.5px] text-white/40">
-          {BRAND.attribution} · v{BRAND.version}
+          {BRAND.attribution}
+        </p>
+        <p className="text-[10.5px] text-white/35">
+          v{BRAND.version} · {BRAND.host}
         </p>
       </div>
     </aside>

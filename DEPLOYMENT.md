@@ -1,6 +1,6 @@
-# Deploying Cirrus to Cloudflare Pages via GitHub Actions
+# Deploying Meridian to Cloudflare Pages via GitHub Actions
 
-**Cirrus** — Read-only Azure visibility, built by **Arunim's IT Caffe**.
+**Meridian** — Read-only Azure visibility, built by **Arunim's IT Caffe**.
 
 Every push to `main` builds and deploys to Cloudflare Pages. Feature branches produce preview URLs. No local wrangler CLI, no Azure resources, no persistent server storage — the app is a static Next.js export plus Cloudflare Pages Functions.
 
@@ -20,15 +20,15 @@ Total setup time: ~5 minutes.
 
 The app lives at the root of its own repo. If you haven't pushed yet:
 
-1. On [github.com](https://github.com/new), create a new **empty** repository (no README, no `.gitignore`, no license — leave it blank). Name suggestion: `cirrus`.
+1. On [github.com](https://github.com/new), create a new **empty** repository (no README, no `.gitignore`, no license — leave it blank). Name suggestion: `meridian`.
 2. From this folder, initialise git and push:
 
    ```powershell
    git init
    git add .
-   git commit -m "chore: initial Cirrus commit"
+   git commit -m "chore: initial Meridian commit"
    git branch -M main
-   git remote add origin https://github.com/<your-username>/cirrus.git
+   git remote add origin https://github.com/<your-username>/meridian.git
    git push -u origin main
    ```
 
@@ -57,7 +57,7 @@ That's the entire Cloudflare project setup. No KV. No workers. No Azure.
 
 ## 2. Set the session secret in Cloudflare
 
-The Pages Functions encrypt the Service Principal credentials in an HttpOnly cookie using `SESSION_SECRET`. Generate a strong random value and store it as an encrypted environment variable in the Pages project.
+The Pages Functions encrypt the login session in an HttpOnly cookie using `SESSION_SECRET`. Generate a strong random value and store it as an encrypted environment variable in the Pages project.
 
 Generate a key on your machine:
 
@@ -76,6 +76,62 @@ Then in the Cloudflare dashboard for the `azure-inventory-web` project:
 4. Save.
 
 Rotate this value any time by generating a new key and updating both environments. Users will just need to log in again.
+
+### Emergency: sign everyone out
+
+If you need to invalidate every active session on demand — a suspected leak, a compromised laptop, a departing admin — you have two levers:
+
+- **Preferred**: bump the `SESSION_EPOCH` environment variable. Set it to a new value (e.g., `1` → `2`). Every previously-issued cookie fails the epoch check on the next request and forces re-authentication. Encryption key is unchanged, so users can immediately sign back in.
+- **Nuclear**: rotate `SESSION_SECRET` itself. Achieves the same outcome plus rotates the crypto material. Use if you suspect the key has leaked.
+
+Both take effect on the very next request, no redeploy needed.
+
+---
+
+## 2b. (Optional) Enable "Sign in with my account"
+
+Meridian supports two login methods:
+
+- **Service Principal** — the deployer's users create an SP in their own Azure AD and paste tenant/client/secret. Requires Application Administrator or `az ad sp create-for-rbac` permissions.
+- **Sign in with my account** — end users log in with their own Azure AD account via the OAuth 2.0 Device Code flow. Requires **no** app-registration permissions in their tenant, just Reader on the subscriptions they want to see.
+
+Enable the second method by creating one multi-tenant app registration in **your** Azure AD (the Meridian deployer's tenant) and setting `AZURE_AD_CLIENT_ID`.
+
+### Create the multi-tenant app registration (one-time)
+
+1. In your Azure AD → **App registrations** → **New registration**.
+2. Name it e.g. `Meridian Sign-in`. Under **Supported account types** pick **Accounts in any organizational directory (Multi-tenant)**.
+3. Leave **Redirect URI** blank (Device Code flow does not use one).
+4. **Register**.
+5. On the app's **Authentication** blade:
+   - Set **Allow public client flows** to **Yes**.
+   - Save.
+6. On the app's **API permissions** blade:
+   - **Add a permission** → **Azure Service Management** → **Delegated permissions** → tick **user_impersonation** → **Add**.
+   - Optionally grant admin consent so your own users don't see the consent prompt (first user from each other tenant will see it once).
+7. Copy the **Application (client) ID** from the app's overview.
+
+### Add the client ID to Cloudflare
+
+Cloudflare Pages → your project → **Settings → Environment variables → Add variable**:
+
+| Field | Value |
+|---|---|
+| Name | `AZURE_AD_CLIENT_ID` |
+| Value | the client ID from step 7 |
+| Encryption | **not required** (client IDs are public identifiers) |
+| Environments | Production **and** Preview |
+
+Redeploy so the Functions pick up the new env var.
+
+### What end users see
+
+- On the login screen they pick **"Sign in with my account"**.
+- They see a code and a link to `microsoft.com/devicelogin`.
+- They authenticate with their normal Azure AD account (MFA and conditional access still apply).
+- The first user from a new tenant gets a one-time consent prompt for `user_impersonation`. Their tenant admin can pre-approve for the whole tenant if desired.
+
+If `AZURE_AD_CLIENT_ID` isn't set, the tab still renders but the endpoint returns `501 — Device Code sign-in is not configured`. Only Service Principal login works until you set it.
 
 ---
 
@@ -181,7 +237,7 @@ Runs the Next.js dev server on `http://localhost:3000`. Useful for tweaking UI w
 | Static HTML/JS | `./out` (built) | Uploaded to CF Pages CDN |
 | API endpoints | `./functions/api/*` | Run in the Workers runtime |
 | Session cookie key | Pages env var `SESSION_SECRET` | Set in dashboard, encrypted |
-| SP credentials | Encrypted HttpOnly cookie | Client-scoped, 8 h lifetime |
+| SP credentials | Encrypted HttpOnly cookie | Client-scoped, 4 h lifetime |
 | Drift snapshots | Browser IndexedDB | Per-user, per-device |
 | VM prices | Workers Cache API | 24 h TTL |
 | Access tokens | Workers Cache API | 1 h TTL |
@@ -192,13 +248,78 @@ There is no server-side database, no KV namespace, no Durable Object, and no Azu
 
 ## Custom domain
 
-Cloudflare dashboard → Pages project → **Custom domains** → **Set up a custom domain**. TLS is provisioned automatically. The app makes no absolute-URL assumptions so any hostname works.
+Meridian's production home is **`https://meridian.cloudcanvas.info`**, served as a subdomain of the parent `cloudcanvas.info` zone.
+
+If you're setting up a fresh deployment on your own subdomain:
+
+1. Cloudflare dashboard → your Pages project → **Custom domains** → **Set up a custom domain**
+2. Enter the fully qualified hostname (e.g. `meridian.example.com`)
+3. If the parent zone (`example.com`) is already in the same Cloudflare account, CF auto-creates the CNAME. Click **Activate domain**.
+4. Universal SSL provisions the TLS cert automatically — usually within 5 minutes.
+
+Then update `web/lib/brand.ts` so the sidebar, footer, PDF exports, and copy references your new home:
+
+```ts
+host: "meridian.example.com",
+url: "https://meridian.example.com",
+```
+
+The app makes no absolute-URL assumptions in its data layer, so any hostname works without further code changes.
 
 ---
 
 ## Rollback
 
 Cloudflare Pages keeps every deployment. Roll back from **Deployments** → pick a prior deploy → **Rollback**. Instant, no rebuild required.
+
+---
+
+## Cloudflare security rules — let the app's own /api/ calls through
+
+If you added **custom security rules** on the zone (scanner blocks, Managed Challenges on app paths, bot / user-agent blocks, etc.), they can catch Meridian's own `/api/*` requests. Symptom: pages like Sign in, VM Backups, Monitor Alerts, or Resource Graph fail with "blocked by a Cloudflare security rule."
+
+Two rule types commonly cause this:
+
+- **Managed Challenge rules** that match app routes such as `/login` or `/dashboard`. A browser can solve a Managed Challenge for a page navigation, but a background `fetch()` to `/api/...` cannot — so the API call fails.
+- **Bot / user-agent block rules** that are broader than intended and match legitimate browser requests.
+
+### Step 1 — Confirm which rule is firing
+
+Cloudflare dashboard → your zone → **Security → Events** (or **Analytics → Security**). Find the recent blocked/challenged request (match the Ray ID shown on the block page). It names the exact rule and the request path. This removes the guesswork.
+
+### Step 2 — Add a high-priority "Skip" rule for /api/
+
+Cloudflare dashboard → **Security → Security rules → Custom rules → Create rule**:
+
+- **Rule name**: `Allow Meridian API`
+- **Field / expression** — use the expression editor and paste:
+
+  ```
+  (starts_with(http.request.uri.path, "/api/"))
+  ```
+
+  Or, scoped to the host as well:
+
+  ```
+  (http.host eq "meridian.cloudcanvas.info" and starts_with(http.request.uri.path, "/api/"))
+  ```
+
+- **Action**: **Skip**
+- Under Skip, tick **All remaining custom rules** (and, if offered, **Rate limiting rules** should stay ENABLED — see note).
+- **Place / order**: drag this rule to **Order 1** so it evaluates before the blocking rules.
+- **Deploy**.
+
+Because Skip stops rule evaluation for matching requests, the app's own API calls sail through while every blocking rule still applies to the rest of the Internet.
+
+### Step 3 — (Optional) Stop challenging /dashboard
+
+If your "Managed Challenge" custom rule lists `/dashboard`, that is a legitimate signed-in app route and will nag real users. Either remove `/dashboard` from that rule's expression, or rely on the Skip rule above for `/api/` and keep the challenge only on truly sensitive paths like `/admin`.
+
+### Keep
+
+Leave the **rate-limiting rule** on the login endpoints in place — it protects `/api/auth/login` and `/api/auth/device/poll` from brute force and is separate from the block rules. The Skip rule targets custom *block/challenge* rules, not rate limits.
+
+After deploying the Skip rule the block clears immediately — no redeploy of the app needed.
 
 ---
 

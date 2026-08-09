@@ -10,10 +10,10 @@
 
 import { z } from "zod";
 import { buildSessionCookie, encryptSession } from "@/lib/session";
-import { verifyServicePrincipal, AzureAuthError } from "@/lib/azure/auth";
+import { verifyServicePrincipal, getArmToken, AzureAuthError } from "@/lib/azure/auth";
 import { errorJson, json, methodNotAllowed } from "@/functions/_utils";
 import type { Env } from "@/functions/types";
-import { listAllSubscriptions } from "@/functions/_subscriptions";
+import { listAllSubscriptionsWithToken } from "@/functions/_subscriptions";
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -64,7 +64,8 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   // 2. List every accessible subscription (all pages).
   let subs;
   try {
-    subs = await listAllSubscriptions(sp);
+    const { token } = await getArmToken(sp);
+    subs = await listAllSubscriptionsWithToken(token, sp.tenantId);
   } catch (err) {
     return errorJson(
       `Failed to list subscriptions: ${err instanceof Error ? err.message : String(err)}`,
@@ -75,11 +76,13 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   // 3. Encrypt session and set cookie.
   const cookieValue = await encryptSession(
     {
+      type: "sp",
       tenantId: sp.tenantId,
       clientId: sp.clientId,
       clientSecret: sp.clientSecret,
       lighthouse: parsed.lighthouse,
       createdAt: new Date().toISOString(),
+      epoch: env.SESSION_EPOCH ?? "1",
     },
     env.SESSION_SECRET,
   );

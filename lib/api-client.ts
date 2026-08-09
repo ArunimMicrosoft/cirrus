@@ -1,5 +1,5 @@
 /**
- * Frontend API client. All calls go to Cloudflare Pages Functions under /api/*
+ * Frontend API client. All calls go to serverless functions under /api/*
  * which handle authentication and proxy to Azure REST endpoints server-side.
  */
 
@@ -7,9 +7,13 @@ import type { AzureSubscription } from "./azure/types";
 
 export interface AuthState {
   authenticated: boolean;
+  /** Whether "Sign in with my account" is available on this deployment. */
+  deviceCodeEnabled?: boolean;
+  type?: "sp" | "device";
   tenantId?: string;
   clientId?: string;
   lighthouse?: boolean;
+  user?: { name: string | null; username: string | null } | null;
 }
 
 export interface LoginRequest {
@@ -25,28 +29,59 @@ export interface LoginResponse {
   subscriptions: AzureSubscription[];
 }
 
+export interface DeviceStartResponse {
+  userCode: string;
+  deviceCode: string;
+  verificationUri: string;
+  message?: string;
+  /** Seconds until the code expires — usually 900 (15 minutes). */
+  expiresIn: number;
+  /** Minimum polling interval in seconds — usually 5. */
+  interval: number;
+  lighthouse: boolean;
+}
+
+export type DevicePollResponse =
+  | { pending: true; slowDown?: boolean }
+  | {
+      authenticated: true;
+      tenantId: string;
+      subscriptions: AzureSubscription[];
+      user: { name: string | null; username: string | null };
+    };
+
 async function parseError(resp: Response): Promise<Error> {
   let message = `${resp.status} ${resp.statusText}`;
   const contentType = resp.headers.get("content-type") ?? "";
   try {
     const text = await resp.text();
     if (text) {
-      // Detect the "HTML 404 from next dev server" case: it means the caller
-      // is running `next dev` (no Pages Functions) instead of `wrangler pages
-      // dev`, so /api/* routes don't exist. Turn the cryptic HTML dump into
-      // a clear, actionable error.
+      // An HTML body where JSON was expected means the request was
+      // intercepted before it reached the backend — almost always a
+      // security/edge rule returning a challenge or block page.
       if (
         contentType.includes("text/html") ||
         text.trimStart().startsWith("<!DOCTYPE") ||
         text.trimStart().startsWith("<html")
       ) {
+        // A security rule (WAF/bot/challenge) returned an HTML block page.
+        // OData $filter syntax and long Azure resource IDs are common
+        // false-positive triggers for generic web-application-firewall rules.
+        const looksLikeSecurityBlock =
+          resp.status === 403 ||
+          /ray id|has been blocked|attention required|just a moment/i.test(text);
+        if (looksLikeSecurityBlock) {
+          return new Error(
+            "This request was stopped by a network security rule before it reached Azure. Legitimate Azure queries can trip generic firewall rules. Please contact your administrator to allow the application's own API paths.",
+          );
+        }
         if (resp.status === 404) {
           return new Error(
-            "API endpoint not found (received HTML 404). If you're running locally, use `npm run pages:dev` (port 8788) instead of `npm run dev` — the Next.js dev server does not run Cloudflare Pages Functions.",
+            "The backend API is not responding. If you are running the app locally, make sure you started it with the full local runtime rather than the front-end-only dev server.",
           );
         }
         return new Error(
-          `Server returned HTML instead of JSON (status ${resp.status}). Backend is likely not running or a proxy is in the way.`,
+          `The server returned an unexpected response (status ${resp.status}). The backend may be unavailable.`,
         );
       }
       try {
@@ -60,6 +95,23 @@ async function parseError(resp: Response): Promise<Error> {
     // ignore
   }
   return new Error(message);
+}
+
+/**
+ * Serialise extra ARM query params into a `&key=value` string. Values are
+ * URL-encoded. Returns "" when params is empty/undefined so callers can
+ * always append the result to an existing query string.
+ */
+function encodeParams(
+  params?: Record<string, string | number | undefined>,
+): string {
+  if (!params) return "";
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === "") continue;
+    parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  }
+  return parts.length ? `&${parts.join("&")}` : "";
 }
 
 async function jsonFetch<T>(
@@ -83,7 +135,7 @@ async function jsonFetch<T>(
   const contentType = resp.headers.get("content-type") ?? "";
   if (contentType.includes("text/html")) {
     throw new Error(
-      "API returned HTML with 200 status. If running locally, use `npm run pages:dev` — the Next.js dev server does not run Pages Functions.",
+      "The backend API returned an unexpected response. If you are running the app locally, make sure the full local runtime is started rather than the front-end-only dev server.",
     );
   }
   return (await resp.json()) as T;
@@ -98,26 +150,49 @@ export const api = {
         body: JSON.stringify(payload),
       }),
     logout: () => jsonFetch<void>("/api/auth/logout", { method: "POST" }),
+    /** Start the OAuth 2.0 Device Code flow. Returns the code + verification URL. */
+    deviceStart: (lighthouse: boolean) =>
+      jsonFetch<DeviceStartResponse>("/api/auth/device/start", {
+        method: "POST",
+        body: JSON.stringify({ lighthouse }),
+      }),
+    /** Poll the device code endpoint. Returns pending or authenticated. */
+    devicePoll: (deviceCode: string, lighthouse: boolean) =>
+      jsonFetch<DevicePollResponse>("/api/auth/device/poll", {
+        method: "POST",
+        body: JSON.stringify({ deviceCode, lighthouse }),
+      }),
   },
   subscriptions: () => jsonFetch<{ value: AzureSubscription[] }>("/api/subscriptions"),
   /**
    * Generic ARM proxy. Pass the ARM path (without the leading `/subscriptions/{sub}`)
    * and the subscription ID; the proxy inserts the correct path and Bearer token.
+   * Extra ARM query params (e.g. `$filter`) can be passed via `params`.
    */
-  arm: <T>(subscriptionId: string, armPath: string, apiVersion: string) =>
+  arm: <T>(
+    subscriptionId: string,
+    armPath: string,
+    apiVersion: string,
+    params?: Record<string, string | number | undefined>,
+  ) =>
     jsonFetch<T>(
       `/api/arm/${encodeURIComponent(subscriptionId)}${
         armPath.startsWith("/") ? armPath : `/${armPath}`
-      }?api-version=${encodeURIComponent(apiVersion)}`,
+      }?api-version=${encodeURIComponent(apiVersion)}${encodeParams(params)}`,
     ),
   /**
    * Same as arm() but walks pagination server-side and returns the aggregated array.
    */
-  armList: <T>(subscriptionId: string, armPath: string, apiVersion: string) =>
+  armList: <T>(
+    subscriptionId: string,
+    armPath: string,
+    apiVersion: string,
+    params?: Record<string, string | number | undefined>,
+  ) =>
     jsonFetch<{ value: T[] }>(
       `/api/arm/${encodeURIComponent(subscriptionId)}${
         armPath.startsWith("/") ? armPath : `/${armPath}`
-      }?api-version=${encodeURIComponent(apiVersion)}&_paginate=1`,
+      }?api-version=${encodeURIComponent(apiVersion)}&_paginate=1${encodeParams(params)}`,
     ),
   /**
    * Read-only Azure Resource Graph (KQL) query. Body is passed through as-is
@@ -132,6 +207,21 @@ export const api = {
     }>("/api/graph", {
       method: "POST",
       body: JSON.stringify({ query, subscriptions, top }),
+    }),
+  /**
+   * Read-only Azure Cost Management actual-cost query. POST is the API
+   * contract (query definition in body); it is an analytics query engine
+   * that cannot mutate resources. Returns the raw columns/rows table.
+   */
+  cost: <T = unknown>(
+    subscriptionId: string,
+    from: string,
+    to: string,
+    granularity: "Daily" | "Monthly" = "Daily",
+  ) =>
+    jsonFetch<T>("/api/cost", {
+      method: "POST",
+      body: JSON.stringify({ subscriptionId, from, to, granularity }),
     }),
   /** VM price lookup (PAYG + optional RI). */
   vmPrice: (size: string, region: string, ri = false) =>

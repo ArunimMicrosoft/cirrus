@@ -4,12 +4,28 @@ import { BRAND } from "@/lib/brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: `${BRAND.name} — ${BRAND.taglineShort}`,
+  metadataBase: new URL(BRAND.url),
+  title: {
+    default: `${BRAND.name} — ${BRAND.taglineShort}`,
+    template: `%s — ${BRAND.name}`,
+  },
   description: `${BRAND.name} is a read-only Azure inventory, cost intelligence, and compliance reporting tool. ${BRAND.attribution}.`,
   applicationName: BRAND.name,
-  authors: [{ name: "Arunim's IT Caffe" }],
-  creator: "Arunim's IT Caffe",
+  authors: [{ name: BRAND.parentBrand.name }],
+  creator: BRAND.parentBrand.name,
   robots: { index: false, follow: false },
+  openGraph: {
+    type: "website",
+    url: BRAND.url,
+    siteName: BRAND.name,
+    title: `${BRAND.name} — ${BRAND.taglineShort}`,
+    description: `Read-only Azure inventory and compliance reporting. ${BRAND.attribution}.`,
+  },
+  twitter: {
+    card: "summary",
+    title: `${BRAND.name} — ${BRAND.taglineShort}`,
+    description: `Read-only Azure inventory and compliance reporting.`,
+  },
 };
 
 export const viewport: Viewport = {

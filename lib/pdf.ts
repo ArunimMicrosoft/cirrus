@@ -1,7 +1,7 @@
 /**
  * Client-side PDF export using pdf-lib.
  *
- * The output is a branded, tabular audit report — Cirrus wordmark in the
+ * The output is a branded, tabular audit report — Meridian wordmark in the
  * header, "Built by Arunim's IT Caffe" credit in the footer, page numbers,
  * date stamp, alternating row shading, and a discrete READ-ONLY watermark.
  *
@@ -140,7 +140,7 @@ export async function exportPdfTable<T>(
     });
 
     /* -----------------------------------
-     * Header — Cirrus wordmark + tagline + date + read-only chip
+     * Header — Meridian wordmark + tagline + date + read-only chip
      * -----------------------------------*/
     // Thin top accent
     page.drawRectangle({
@@ -360,14 +360,14 @@ export async function exportPdfTable<T>(
     // Left: brand credit
     page.drawText(BRAND.name, {
       x: MARGIN_X,
-      y: 30,
+      y: 32,
       size: 10,
       font: serif,
       color: C.ink,
     });
-    page.drawText(BRAND.attribution, {
+    page.drawText(`${BRAND.attribution} · ${BRAND.host}`, {
       x: MARGIN_X,
-      y: 16,
+      y: 18,
       size: 7.5,
       font,
       color: C.inkMuted,

@@ -1,28 +1,66 @@
 /**
  * Encrypted session cookie for Cloudflare Pages Functions.
  *
- * Stores Service Principal credentials in an HttpOnly, Secure, SameSite=Lax cookie.
- * AES-GCM authenticated encryption (integrity + confidentiality) using a 256-bit
- * key derived from SESSION_SECRET via SHA-256.
+ * Stores one of two auth payloads in an HttpOnly, Secure, SameSite=Lax cookie:
  *
- * Payload is small (< 500 bytes) and stays well under the 4 KB cookie limit.
+ *   type "sp"     — Service Principal (client_credentials flow)
+ *   type "device" — Delegated user token acquired via OAuth 2.0 Device Code
+ *
+ * AES-GCM authenticated encryption (integrity + confidentiality) using a
+ * 256-bit key derived from SESSION_SECRET via SHA-256. Payload stays under
+ * ~2 KB even with a full refresh_token, well within the 4 KB cookie limit.
  */
 
 export const SESSION_COOKIE = "aiu_session";
-const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8 hours
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 4; // 4 hours
 
-export interface SessionPayload {
+/**
+ * Default cookie "generation" (aka epoch). Any session created before the
+ * currently-configured epoch is treated as invalid. Bump the SESSION_EPOCH
+ * env var on the deployment to sign every user out on demand — no need to
+ * rotate the encryption key.
+ */
+const DEFAULT_EPOCH = "1";
+
+/** Service Principal (client_credentials) session — created by /api/auth/login. */
+export interface SpSessionPayload {
+  type: "sp";
   /** HOME / MSP tenant ID */
   tenantId: string;
   /** Service Principal application (client) ID */
   clientId: string;
-  /** Service Principal client secret (encrypted at rest in the cookie) */
+  /** Service Principal client secret */
   clientSecret: string;
   /** Whether Azure Lighthouse mode is enabled */
   lighthouse: boolean;
   /** ISO timestamp of when this session was created */
   createdAt: string;
+  /** Cookie generation. Must match env.SESSION_EPOCH to be accepted. */
+  epoch?: string;
 }
+
+/** Delegated user session — created by /api/auth/device/poll on success. */
+export interface DeviceSessionPayload {
+  type: "device";
+  /** User's home tenant (extracted from the returned token's tid claim). */
+  tenantId: string;
+  /** Multi-tenant app client ID that owns this session (AZURE_AD_CLIENT_ID). */
+  clientId: string;
+  /** Long-lived refresh token — used to mint fresh ARM tokens as needed. */
+  refreshToken: string;
+  /** Optional: display name from the id token. */
+  name?: string;
+  /** Optional: preferred_username / UPN. */
+  username?: string;
+  /** Whether Azure Lighthouse mode is enabled (delegated subs). */
+  lighthouse: boolean;
+  /** ISO timestamp of when this session was created */
+  createdAt: string;
+  /** Cookie generation. Must match env.SESSION_EPOCH to be accepted. */
+  epoch?: string;
+}
+
+export type SessionPayload = SpSessionPayload | DeviceSessionPayload;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -70,10 +108,20 @@ export async function encryptSession(
   return toBase64Url(combined);
 }
 
-/** Decrypt a session cookie value. Returns null on any tampering or key mismatch. */
+/**
+ * Decrypt a session cookie value. Returns null on any tampering, key
+ * mismatch, or epoch mismatch. Legacy sessions (from pre-0.2.0 builds)
+ * do NOT carry a `type` field — they are treated as "sp" for backward
+ * compatibility.
+ *
+ * `currentEpoch` is the value of env.SESSION_EPOCH on the server. Bumping
+ * that value in the Cloudflare dashboard immediately invalidates every
+ * previously issued cookie without changing the encryption key.
+ */
 export async function decryptSession(
   token: string | null | undefined,
   secret: string,
+  currentEpoch: string = DEFAULT_EPOCH,
 ): Promise<SessionPayload | null> {
   if (!token || !secret) return null;
   try {
@@ -87,11 +135,59 @@ export async function decryptSession(
       key,
       ciphertext,
     );
-    const parsed = JSON.parse(decoder.decode(plaintext)) as SessionPayload;
-    if (!parsed.tenantId || !parsed.clientId || !parsed.clientSecret) {
+    const parsed = JSON.parse(decoder.decode(plaintext)) as Record<string, unknown>;
+
+    // Epoch check. Sessions with no epoch (legacy) are treated as epoch "1".
+    const sessionEpoch = typeof parsed.epoch === "string" ? parsed.epoch : DEFAULT_EPOCH;
+    if (sessionEpoch !== currentEpoch) return null;
+
+    // Discriminate by explicit type, defaulting to "sp" for legacy payloads.
+    const type = parsed.type === "device" ? "device" : "sp";
+    if (type === "device") {
+      if (
+        typeof parsed.tenantId !== "string" ||
+        typeof parsed.clientId !== "string" ||
+        typeof parsed.refreshToken !== "string"
+      ) {
+        return null;
+      }
+      return {
+        type: "device",
+        tenantId: parsed.tenantId,
+        clientId: parsed.clientId,
+        refreshToken: parsed.refreshToken,
+        name: typeof parsed.name === "string" ? parsed.name : undefined,
+        username:
+          typeof parsed.username === "string" ? parsed.username : undefined,
+        lighthouse: Boolean(parsed.lighthouse),
+        createdAt:
+          typeof parsed.createdAt === "string"
+            ? parsed.createdAt
+            : new Date().toISOString(),
+        epoch: sessionEpoch,
+      };
+    }
+
+    // "sp" branch (or legacy).
+    if (
+      typeof parsed.tenantId !== "string" ||
+      typeof parsed.clientId !== "string" ||
+      typeof parsed.clientSecret !== "string"
+    ) {
       return null;
     }
-    return parsed;
+    return {
+      type: "sp",
+      tenantId: parsed.tenantId,
+      clientId: parsed.clientId,
+      clientSecret: parsed.clientSecret,
+      lighthouse: Boolean(parsed.lighthouse),
+      createdAt:
+        typeof parsed.createdAt === "string"
+          ? parsed.createdAt
+          : new Date().toISOString(),
+      epoch: sessionEpoch,
+    };
   } catch {
     return null;
   }
@@ -139,7 +235,11 @@ export function parseCookies(cookieHeader: string | null): Record<string, string
 export async function readSession(
   request: Request,
   secret: string,
+  currentEpoch: string = DEFAULT_EPOCH,
 ): Promise<SessionPayload | null> {
   const cookies = parseCookies(request.headers.get("Cookie"));
-  return decryptSession(cookies[SESSION_COOKIE], secret);
+  return decryptSession(cookies[SESSION_COOKIE], secret, currentEpoch);
 }
+
+/** The default epoch used when SESSION_EPOCH isn't configured. */
+export { DEFAULT_EPOCH };

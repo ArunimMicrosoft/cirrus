@@ -103,11 +103,15 @@ export default function MetricsPage() {
       const path =
         `/resourceGroups/${encodeURIComponent(rg)}` +
         `/providers/Microsoft.Compute/virtualMachines/${encodeURIComponent(vm.name)}` +
-        `/providers/Microsoft.Insights/metrics` +
-        `?metricnames=${encodeURIComponent(selectedMetric)}` +
-        `&aggregation=Average&timespan=${encodeURIComponent(timespan)}` +
-        `&interval=${interval}`;
-      return api.arm<MetricResponse>(activeId, path, ArmApi.monitorMetrics);
+        `/providers/Microsoft.Insights/metrics`;
+      // Params via api.arm's params arg — baking a query string into the path
+      // produces a second "?" and the proxy rejects the request.
+      return api.arm<MetricResponse>(activeId, path, ArmApi.monitorMetrics, {
+        metricnames: selectedMetric,
+        aggregation: "Average",
+        timespan,
+        interval,
+      });
     },
     enabled: Boolean(activeId && vm),
     staleTime: 60_000,

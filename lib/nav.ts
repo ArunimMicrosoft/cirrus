@@ -6,9 +6,11 @@
  */
 
 import {
+  Activity,
   AlertTriangle,
   BarChart3,
   Bomb,
+  Boxes,
   Cloud,
   Coins,
   Database,
@@ -25,11 +27,14 @@ import {
   Network,
   Recycle,
   Route,
+  ScrollText,
   Search,
   Server,
+  Share2,
   Shield,
   ShieldCheck,
   Trash2,
+  TrendingUp,
   Wallet,
   Waypoints,
 } from "lucide-react";
@@ -49,7 +54,21 @@ export interface NavGroup {
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Overview",
-    items: [{ label: "Dashboard", href: "/dashboard", icon: Home }],
+    items: [
+      { label: "Dashboard", href: "/dashboard", icon: Home },
+      { label: "Intelligence Signals", href: "/signals", icon: Activity },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { label: "Cost Intelligence", href: "/intelligence/cost", icon: TrendingUp },
+      { label: "Network Intelligence", href: "/intelligence/network", icon: Route },
+      { label: "IP Address Management", href: "/intelligence/ipam", icon: Network },
+      { label: "Network Topology", href: "/intelligence/topology", icon: Share2 },
+      { label: "Workload Intelligence", href: "/intelligence/workload", icon: Boxes },
+      { label: "Governance Intelligence", href: "/intelligence/governance", icon: ScrollText },
+    ],
   },
   {
     label: "Inventory",

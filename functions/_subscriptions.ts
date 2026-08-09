@@ -1,14 +1,16 @@
 /**
- * Shared subscription-listing helper used by /api/auth/login and
- * /api/subscriptions. The ARM /subscriptions endpoint is paginated via
- * `nextLink` — the previous implementation only fetched the first page,
- * which silently hid subscriptions in accounts with more than ~100 subs.
+ * Shared subscription-listing helper used by /api/auth/login,
+ * /api/auth/device/poll, and /api/subscriptions.
  *
- * This helper walks nextLink until exhausted, then maps to our own
- * AzureSubscription shape with HOME vs Lighthouse-delegated indicators.
+ * The ARM /subscriptions endpoint is paginated via nextLink — the previous
+ * implementation only fetched the first page, which silently hid
+ * subscriptions in accounts with more than ~100 subs. This helper walks
+ * nextLink until exhausted.
+ *
+ * Takes a raw ARM access token so both Service Principal and delegated
+ * user (device code) sessions can share the same code path.
  */
 
-import { getArmToken, type ServicePrincipal } from "@/lib/azure/auth";
 import type { AzureSubscription } from "@/lib/azure/types";
 
 interface ArmSub {
@@ -24,14 +26,17 @@ interface Page {
 }
 
 /**
- * List every accessible subscription for the given SP. Walks all pages.
- * Marks each subscription with isHome=true when its tenantId matches the
- * SP's tenantId (HOME tenant), false when delegated via Lighthouse.
+ * List every subscription visible to the given ARM token. Walks all pages
+ * up to a safety cap.
+ *
+ * @param token   Raw ARM access token
+ * @param homeTenantId   The session's home tenant, used to mark subs as
+ *   isHome vs delegated via Azure Lighthouse.
  */
-export async function listAllSubscriptions(
-  sp: ServicePrincipal,
+export async function listAllSubscriptionsWithToken(
+  token: string,
+  homeTenantId: string,
 ): Promise<AzureSubscription[]> {
-  const { token } = await getArmToken(sp);
   const headers = {
     Authorization: `Bearer ${token}`,
     Accept: "application/json",
@@ -40,7 +45,6 @@ export async function listAllSubscriptions(
   const all: ArmSub[] = [];
   let url: string | null =
     "https://management.azure.com/subscriptions?api-version=2020-01-01";
-  // Safety cap: don't loop forever if ARM misbehaves.
   let pages = 0;
   while (url && pages < 50) {
     const resp: Response = await fetch(url, { headers });
@@ -57,8 +61,8 @@ export async function listAllSubscriptions(
   return all.map((s) => ({
     subscriptionId: s.subscriptionId,
     displayName: s.displayName,
-    tenantId: s.tenantId ?? sp.tenantId,
+    tenantId: s.tenantId ?? homeTenantId,
     state: s.state,
-    isHome: (s.tenantId ?? sp.tenantId) === sp.tenantId,
+    isHome: (s.tenantId ?? homeTenantId) === homeTenantId,
   }));
 }

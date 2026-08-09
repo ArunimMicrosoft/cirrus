@@ -20,7 +20,7 @@ export function SubscriptionPicker() {
   const setActive = useSubscriptionStore((s) => s.setActive);
 
   if (isLoading) {
-    return <Skeleton className="h-9 w-72" />;
+    return <Skeleton className="h-9 w-full max-w-[280px]" />;
   }
   if (isError) {
     return (
@@ -43,7 +43,10 @@ export function SubscriptionPicker() {
         if (found) setActive(found);
       }}
     >
-      <SelectTrigger className="w-72" aria-label="Active subscription">
+      <SelectTrigger
+        className="w-full max-w-[calc(100vw-8rem)] md:max-w-none md:w-72"
+        aria-label="Active subscription"
+      >
         <SelectValue placeholder="Select subscription" />
       </SelectTrigger>
       <SelectContent>

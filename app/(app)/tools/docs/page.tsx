@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, KeyRound, Radio, ShieldCheck, WrenchIcon } from "lucide-react";
+import { FileText, KeyRound, Radio, ShieldCheck, WrenchIcon, Sigma } from "lucide-react";
 import { PageHeader } from "@/components/data/PageHeader";
 import {
   Card,
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { ALGORITHMS } from "@/lib/algorithms";
 
 export default function DocsPage() {
   return (
@@ -18,7 +19,7 @@ export default function DocsPage() {
       <PageHeader
         icon={<FileText className="h-5 w-5" />}
         title="Technical Documentation"
-        description="Authentication, architecture, and operational notes for this Cloudflare Pages build."
+        description="Authentication, the read-only model, live pricing, and the intelligence algorithms."
       />
 
       <Alert>
@@ -39,34 +40,30 @@ export default function DocsPage() {
             <CardTitle className="text-base">Authentication</CardTitle>
           </div>
           <CardDescription>
-            Service Principal (client-credentials flow) against Azure AD.
+            Service Principal (client-credentials) or your own Azure AD account.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p>
-            Sign in with three values obtained from Azure AD → App
-            registrations: <strong>Tenant ID</strong>,{" "}
-            <strong>Client ID</strong>, and <strong>Client Secret</strong>. The
-            SP needs at minimum the <strong>Reader</strong> role on each
-            subscription you want to inspect.
+            Sign in with a Service Principal (<strong>Tenant ID</strong>,{" "}
+            <strong>Client ID</strong>, <strong>Client Secret</strong>) or,
+            where enabled, with your own Azure AD account. Either way the
+            identity needs at minimum the <strong>Reader</strong> role on each
+            subscription you inspect.
           </p>
           <p>
-            Credentials are encrypted (AES-GCM) using{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              SESSION_SECRET
-            </code>{" "}
-            and stored in an HttpOnly, Secure, SameSite=Lax cookie. The browser
-            never sees the plaintext secret again after login. Sessions last 8
-            hours.
+            Credentials are encrypted with authenticated encryption and stored
+            in an HttpOnly, Secure, SameSite=Lax cookie. The browser never sees
+            the plaintext secret again after login. Sessions last 8 hours and
+            can be revoked centrally at any time.
           </p>
           <p>
             <Badge variant="warning" className="mr-2">
               Lighthouse
             </Badge>
             Enable the checkbox on the login form to discover subscriptions
-            delegated to your Service Principal across customer tenants. The
-            HOME tenant is auto-detected; delegated subscriptions are marked
-            with a globe icon.
+            delegated to you across customer tenants. The HOME tenant is
+            auto-detected; delegated subscriptions are marked with a globe icon.
           </p>
         </CardContent>
       </Card>
@@ -83,13 +80,10 @@ export default function DocsPage() {
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p>
-            Cost estimates come from{" "}
-            <code className="rounded bg-muted px-1 py-0.5 text-xs">
-              prices.azure.com/api/retail/prices
-            </code>{" "}
-            — a public, free, GET-only endpoint that returns real-time
-            PAYG and Reservation pricing per SKU + region. Results are cached
-            for 24 hours in the Cloudflare Workers Cache API.
+            Cost estimates come from Microsoft&apos;s public Azure Retail
+            Prices API — a free, GET-only endpoint that returns real-time PAYG
+            and Reservation pricing per SKU and region. Results are cached
+            briefly at the edge to avoid redundant calls.
           </p>
           <p>
             Every cost cell is tagged with a source indicator: 📡 live from the
@@ -107,35 +101,59 @@ export default function DocsPage() {
             <CardTitle className="text-base">Architecture</CardTitle>
           </div>
           <CardDescription>
-            Next.js 14 (static export) + Cloudflare Pages Functions.
+            Static single-page app + stateless serverless functions.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <ul className="list-disc space-y-1 pl-5">
             <li>
-              Frontend is a static Next.js 14 SPA served from{" "}
-              <code className="text-xs">./out</code>.
+              The frontend is a static single-page app served from a global
+              edge network — no origin server to reach.
             </li>
             <li>
-              Backend runs entirely in Pages Functions (Workers runtime). No
-              Node.js server process, no long-running compute.
+              The backend is a small set of stateless serverless functions.
+              No always-on server, no long-running compute, nothing to patch.
             </li>
             <li>
-              Azure REST API is called directly via{" "}
-              <code className="text-xs">fetch()</code>; the{" "}
-              <code className="text-xs">@azure/arm-*</code> SDKs are avoided to
-              keep the Workers bundle small.
+              Azure REST APIs are called through a read-only proxy that rejects
+              every HTTP verb except GET before any request leaves the app.
             </li>
             <li>
-              Drift snapshots live in the browser's IndexedDB (via{" "}
-              <code className="text-xs">lib/idb.ts</code>) — per-user,
-              per-device, never sent to the server.
+              Drift snapshots and intelligence baselines live in your
+              browser&apos;s local storage — per-user, per-device, never sent
+              to a server.
             </li>
             <li>
-              PDF and CSV exports render in the browser (pdf-lib / Blob API)
-              so Workers CPU budget stays low.
+              PDF and CSV exports render entirely in the browser, so no report
+              data touches the backend.
             </li>
           </ul>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Sigma className="h-4 w-4 text-primary" />
+            <CardTitle className="text-base">Intelligence algorithms</CardTitle>
+          </div>
+          <CardDescription>
+            Every signal is a named, auditable technique — no AI, no external
+            inference, all computed in your browser.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {Object.values(ALGORITHMS).map((a) => (
+            <div key={a.name} className="flex items-baseline gap-3 border-b pb-2 last:border-0 last:pb-0">
+              <span className="w-40 shrink-0 font-mono text-[12px] font-medium text-foreground">
+                {a.name}
+              </span>
+              <span className="text-[13px] text-muted-foreground">{a.role}</span>
+              <span className="ml-auto shrink-0 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                {a.field}
+              </span>
+            </div>
+          ))}
         </CardContent>
       </Card>
 

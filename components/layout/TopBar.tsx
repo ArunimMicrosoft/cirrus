@@ -1,20 +1,32 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Globe2, Home, LogOut, ShieldCheck } from "lucide-react";
+import { Globe2, Home, LogOut, Menu, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SubscriptionPicker } from "./SubscriptionPicker";
 import { useAuthState, useLogout } from "@/lib/hooks/use-auth";
+import { useUiStore } from "@/lib/hooks/use-ui";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function TopBar() {
   const { data: auth } = useAuthState();
   const logout = useLogout();
   const router = useRouter();
+  const toggleMobileNav = useUiStore((s) => s.toggleMobileNav);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-4 border-b bg-background/85 px-6 backdrop-blur-md">
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b bg-background/85 px-3 backdrop-blur-md md:gap-4 md:px-6">
+      <div className="flex min-w-0 items-center gap-2 md:gap-3">
+        {/* Mobile hamburger — hidden on desktop where the sidebar is always visible. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden"
+          onClick={toggleMobileNav}
+          aria-label="Open navigation"
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
         <SubscriptionPicker />
       </div>
 

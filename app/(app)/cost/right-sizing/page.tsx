@@ -1,6 +1,7 @@
 "use client";
 
-import { Gauge, Radio, TrendingDown } from "lucide-react";
+import { useQueries } from "@tanstack/react-query";
+import { Gauge, Radio, TrendingDown, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/data/PageHeader";
 import { DataTable, type DataColumn } from "@/components/data/DataTable";
 import { NoSubscriptionState } from "@/components/data/NoSubscriptionState";
@@ -9,11 +10,22 @@ import { StatCard } from "@/components/data/StatCard";
 import { useArmList } from "@/lib/hooks/use-arm";
 import { useSubscriptionStore } from "@/lib/hooks/use-subscription";
 import { ArmApi } from "@/lib/azure/arm";
+import { api } from "@/lib/api-client";
 import { formatCurrency, resourceGroupFromId } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import type { AdvisorRecommendation, VirtualMachine } from "@/lib/azure/types";
 import { useVmPrices, HOURS_PER_MONTH } from "@/lib/hooks/use-vm-prices";
+import {
+  statsFromCpuSeries,
+  gradeRecommendation,
+  confidenceLabel,
+  actionPriority,
+  type Confidence,
+  type ConfidenceResult,
+  type MetricDataPoint,
+  type RecommendationKind,
+} from "@/lib/ml/rightsizing";
 
 interface Row {
   id: string;
@@ -22,12 +34,23 @@ interface Row {
   region: string;
   size: string;
   monthly: number;
-  action: "right-sized" | "resize" | "shut-down";
+  action: RecommendationKind;
   suggestedSize: string;
   estSavings: number;
   advisorText: string;
   live: boolean;
   priceLoading: boolean;
+  confidence: Confidence;
+  confidenceReason: string;
+  cpuP95: number | null;
+  cpuMax: number | null;
+  metricsLoading: boolean;
+}
+
+interface MetricResponse {
+  value: Array<{
+    timeseries: Array<{ data: MetricDataPoint[] }>;
+  }>;
 }
 
 function extractSuggestedSize(text: string): string {
@@ -50,7 +73,6 @@ export default function RightSizingPage() {
 
   const vmList = vms.data?.value ?? [];
 
-  // Build (size, region) pairs for pricing.
   const pricePairs = vmList
     .map((vm) => ({
       size: vm.properties?.hardwareProfile?.vmSize ?? "",
@@ -58,13 +80,11 @@ export default function RightSizingPage() {
     }))
     .filter((p) => p.size);
 
-  // Also fetch suggested-size prices when Advisor provides them.
   const advisorByVm = new Map<string, AdvisorRecommendation>();
   advisor.data?.value.forEach((rec) => {
     const rid = rec.properties?.resourceMetadata?.resourceId ?? "";
     if (rid.toLowerCase().includes("/virtualmachines/")) {
       const vmName = rid.split("/").pop()?.toLowerCase() ?? "";
-      // keep the first cost-category recommendation for this VM
       const cat = (rec.properties?.category ?? "").toLowerCase();
       const sol = rec.properties?.shortDescription?.solution ?? "";
       const prob = rec.properties?.shortDescription?.problem ?? "";
@@ -91,6 +111,86 @@ export default function RightSizingPage() {
   const currentPrices = useVmPrices(pricePairs);
   const suggestedPrices = useVmPrices(suggestedPairs);
 
+  // Only fan out metrics for VMs that actually have an Advisor recommendation.
+  // Avoids hammering Azure Monitor for VMs the operator doesn't need to
+  // review, and keeps the initial page load fast.
+  const vmsNeedingMetrics = vmList.filter((vm) =>
+    advisorByVm.has((vm.name ?? "").toLowerCase()),
+  );
+
+  const metricQueries = useQueries({
+    queries: vmsNeedingMetrics.map((vm) => ({
+      queryKey: ["rightsizing-cpu", activeId, vm.id] as const,
+      queryFn: async (): Promise<MetricResponse> => {
+        if (!activeId) throw new Error("No active subscription");
+        const rg = resourceGroupFromId(vm.id);
+        const end = new Date();
+        const start = new Date(end.getTime() - 30 * 24 * 60 * 60 * 1000);
+        const timespan = `${start.toISOString()}/${end.toISOString()}`;
+        const path =
+          `/resourceGroups/${encodeURIComponent(rg)}` +
+          `/providers/Microsoft.Compute/virtualMachines/${encodeURIComponent(vm.name)}` +
+          `/providers/Microsoft.Insights/metrics`;
+        // Params via api.arm's params arg — baking a query string into the
+        // path produces a second "?" and the proxy rejects the request.
+        return api.arm<MetricResponse>(activeId, path, ArmApi.monitorMetrics, {
+          metricnames: "Percentage CPU",
+          aggregation: "Average,Maximum",
+          timespan,
+          interval: "PT6H",
+        });
+      },
+      enabled: Boolean(activeId),
+      staleTime: 5 * 60_000,
+      retry: false,
+    })),
+  });
+
+  const metricsByVmId = new Map<string, { result: ConfidenceResult; loading: boolean }>();
+  vmsNeedingMetrics.forEach((vm, i) => {
+    const q = metricQueries[i];
+    const advisorRec = advisorByVm.get((vm.name ?? "").toLowerCase());
+    const advisorText = advisorRec
+      ? `${advisorRec.properties?.shortDescription?.problem ?? ""} ${advisorRec.properties?.shortDescription?.solution ?? ""}`
+      : "";
+    const kind: RecommendationKind = /shut ?down|deallocate|idle/i.test(advisorText)
+      ? "shut-down"
+      : "resize";
+
+    if (q?.isLoading) {
+      metricsByVmId.set(vm.id, {
+        result: {
+          confidence: "NONE",
+          reason: "Loading Azure Monitor metrics…",
+          stats: null,
+        },
+        loading: true,
+      });
+      return;
+    }
+    if (q?.isError || !q?.data) {
+      metricsByVmId.set(vm.id, {
+        result: {
+          confidence: "NONE",
+          reason:
+            q?.error instanceof Error
+              ? `Metrics unavailable: ${q.error.message.slice(0, 120)}`
+              : "Metrics unavailable.",
+          stats: null,
+        },
+        loading: false,
+      });
+      return;
+    }
+
+    const points = q.data.value?.[0]?.timeseries?.[0]?.data ?? [];
+    const stats = statsFromCpuSeries(points);
+    metricsByVmId.set(vm.id, {
+      result: gradeRecommendation(kind, stats),
+      loading: false,
+    });
+  });
+
   const rows: Row[] = vmList.map((vm) => {
     const size = vm.properties?.hardwareProfile?.vmSize ?? "-";
     const region = vm.location;
@@ -105,7 +205,7 @@ export default function RightSizingPage() {
         }`
       : "";
 
-    let action: Row["action"] = "right-sized";
+    let action: RecommendationKind = "right-sized";
     let suggestedSize = "-";
     let estSavings = 0;
 
@@ -125,13 +225,18 @@ export default function RightSizingPage() {
             const suggestedMonthly = suggestedRate.paygHourly * HOURS_PER_MONTH;
             estSavings = Math.max(0, monthly - suggestedMonthly);
           } else {
-            estSavings = monthly * 0.35; // heuristic when suggested price not available
+            estSavings = monthly * 0.35;
           }
         } else {
           estSavings = monthly * 0.35;
         }
       }
     }
+
+    const conf = metricsByVmId.get(vm.id) ?? {
+      result: gradeRecommendation(action, null),
+      loading: false,
+    };
 
     return {
       id: vm.id,
@@ -146,14 +251,40 @@ export default function RightSizingPage() {
       advisorText,
       live: rate?.live ?? false,
       priceLoading: rate?.loading ?? false,
+      confidence: conf.result.confidence,
+      confidenceReason: conf.result.reason,
+      cpuP95: conf.result.stats?.p95 ?? null,
+      cpuMax: conf.result.stats?.max ?? null,
+      metricsLoading: conf.loading,
     };
+  });
+
+  // Sort actionable rows first so operators see the money at the top.
+  rows.sort((a, b) => {
+    const ap = actionPriority(a.action, a.confidence);
+    const bp = actionPriority(b.action, b.confidence);
+    if (ap !== bp) return bp - ap;
+    return b.estSavings - a.estSavings;
   });
 
   const oversized = rows.filter((r) => r.action === "resize").length;
   const idle = rows.filter((r) => r.action === "shut-down").length;
-  const totalSavings = rows.reduce((s, r) => s + r.estSavings, 0);
   const totalMonthly = rows.reduce((s, r) => s + r.monthly, 0);
   const liveCount = rows.filter((r) => r.live).length;
+
+  // Only count savings for HIGH / MEDIUM confidence — LOW-confidence rows are
+  // Advisor recommendations our metric evidence disagrees with.
+  const trustedSavings = rows
+    .filter((r) => r.action !== "right-sized" && (r.confidence === "HIGH" || r.confidence === "MEDIUM"))
+    .reduce((s, r) => s + r.estSavings, 0);
+
+  const highCount = rows.filter(
+    (r) => r.action !== "right-sized" && r.confidence === "HIGH",
+  ).length;
+  const lowCount = rows.filter(
+    (r) => r.action !== "right-sized" && r.confidence === "LOW",
+  ).length;
+  const metricsAnyLoading = metricQueries.some((q) => q.isLoading);
 
   const columns: DataColumn<Row>[] = [
     {
@@ -178,7 +309,7 @@ export default function RightSizingPage() {
     },
     {
       key: "action",
-      header: "Action",
+      header: "Advisor",
       accessor: (r) => r.action,
       cell: (r) => {
         if (r.action === "shut-down")
@@ -186,6 +317,32 @@ export default function RightSizingPage() {
         if (r.action === "resize")
           return <Badge variant="warning">Resize</Badge>;
         return <Badge variant="success">Right-sized</Badge>;
+      },
+    },
+    {
+      key: "confidence",
+      header: "Meridian verdict",
+      accessor: (r) => r.confidence,
+      cell: (r) => {
+        if (r.action === "right-sized")
+          return <span className="text-xs text-muted-foreground">—</span>;
+        if (r.metricsLoading)
+          return <span className="text-xs text-muted-foreground">Analysing…</span>;
+        return <ConfidenceBadge value={r.confidence} reason={r.confidenceReason} />;
+      },
+    },
+    {
+      key: "cpu",
+      header: "CPU (30d)",
+      accessor: (r) => r.cpuP95 ?? 0,
+      cell: (r) => {
+        if (r.cpuP95 == null || r.cpuMax == null)
+          return <span className="text-xs text-muted-foreground">—</span>;
+        return (
+          <span className="font-mono text-[11px] tabular-nums">
+            p95 {r.cpuP95.toFixed(0)}% · max {r.cpuMax.toFixed(0)}%
+          </span>
+        );
       },
     },
     {
@@ -202,8 +359,20 @@ export default function RightSizingPage() {
       accessor: (r) => r.estSavings,
       cell: (r) =>
         r.estSavings > 0 ? (
-          <span className="tabular-nums font-semibold text-success">
-            −{formatCurrency(r.estSavings)}
+          <span
+            className={
+              r.confidence === "LOW"
+                ? "tabular-nums font-semibold text-muted-foreground line-through"
+                : "tabular-nums font-semibold text-success"
+            }
+            title={
+              r.confidence === "LOW"
+                ? "Discounted: Meridian disagrees with Advisor on this VM"
+                : "Estimated monthly savings"
+            }
+          >
+            {r.confidence === "LOW" ? "" : "−"}
+            {formatCurrency(r.estSavings)}
           </span>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -218,7 +387,7 @@ export default function RightSizingPage() {
       <PageHeader
         icon={<Gauge className="h-5 w-5" />}
         title="VM Right-Sizing Advisor"
-        description={`Advisor recommendations cross-referenced with live Azure Retail Prices for ${activeName ?? "this subscription"}.`}
+        description={`Advisor recommendations cross-referenced with live prices and 30-day CPU metrics for ${activeName ?? "this subscription"}.`}
         actions={
           <ExportButtons
             filenameBase="vm_right_sizing"
@@ -231,9 +400,13 @@ export default function RightSizingPage() {
               { header: "Current SKU", accessor: (r) => r.size },
               { header: "Region", accessor: (r) => r.region },
               { header: "PAYG Monthly", accessor: (r) => r.monthly.toFixed(2) },
-              { header: "Action", accessor: (r) => r.action },
+              { header: "Advisor Action", accessor: (r) => r.action },
               { header: "Suggested Size", accessor: (r) => r.suggestedSize },
               { header: "Estimated Savings/mo", accessor: (r) => r.estSavings.toFixed(2) },
+              { header: "Meridian Confidence", accessor: (r) => r.confidence },
+              { header: "Confidence Reason", accessor: (r) => r.confidenceReason },
+              { header: "CPU p95 (30d)", accessor: (r) => (r.cpuP95 == null ? "" : r.cpuP95.toFixed(1)) },
+              { header: "CPU max (30d)", accessor: (r) => (r.cpuMax == null ? "" : r.cpuMax.toFixed(1)) },
               { header: "Live Pricing", accessor: (r) => (r.live ? "yes" : "no") },
               { header: "Advisor Text", accessor: (r) => r.advisorText },
             ]}
@@ -253,20 +426,34 @@ export default function RightSizingPage() {
           loading={vms.isLoading || currentPrices.anyLoading}
         />
         <StatCard
-          label="Potential savings/mo"
-          value={formatCurrency(totalSavings)}
-          delta={`${formatCurrency(totalSavings * 12)} per year`}
-          deltaTone={totalSavings > 0 ? "positive" : "default"}
+          label="Trusted savings/mo"
+          value={formatCurrency(trustedSavings)}
+          delta={`${formatCurrency(trustedSavings * 12)}/year · high & medium confidence`}
+          deltaTone={trustedSavings > 0 ? "positive" : "default"}
           icon={<TrendingDown className="h-4 w-4" />}
-          loading={vms.isLoading || currentPrices.anyLoading || advisor.isLoading}
+          loading={vms.isLoading || currentPrices.anyLoading || advisor.isLoading || metricsAnyLoading}
         />
         <StatCard
           label="Resize / Idle"
           value={`${oversized} · ${idle}`}
-          delta="resize · shut down"
+          delta={`${highCount} high · ${lowCount} disputed`}
+          icon={<Sparkles className="h-4 w-4" />}
           loading={advisor.isLoading}
         />
       </div>
+
+      <Alert variant="success">
+        <Sparkles className="h-4 w-4" />
+        <AlertTitle>What "Meridian verdict" means</AlertTitle>
+        <AlertDescription>
+          Every Advisor recommendation is scored against the VM's last 30 days
+          of CPU metrics. <strong>High</strong> means the metrics agree —
+          safe to act. <strong>Medium</strong> means mostly quiet with the
+          occasional spike — verify before acting. <strong>Low</strong> means
+          the VM is actually busy and Advisor is likely wrong — keep it.
+          "Trusted savings" only counts high and medium.
+        </AlertDescription>
+      </Alert>
 
       <Alert>
         <Radio className="h-4 w-4" />
@@ -287,5 +474,38 @@ export default function RightSizingPage() {
         getRowId={(r) => r.id}
       />
     </>
+  );
+}
+
+function ConfidenceBadge({
+  value,
+  reason,
+}: {
+  value: Confidence;
+  reason: string;
+}) {
+  const label = confidenceLabel(value);
+  if (value === "HIGH")
+    return (
+      <span title={reason}>
+        <Badge variant="success">{label}</Badge>
+      </span>
+    );
+  if (value === "MEDIUM")
+    return (
+      <span title={reason}>
+        <Badge variant="warning">{label}</Badge>
+      </span>
+    );
+  if (value === "LOW")
+    return (
+      <span title={reason}>
+        <Badge variant="destructive">{label}</Badge>
+      </span>
+    );
+  return (
+    <span title={reason}>
+      <Badge variant="outline">{label}</Badge>
+    </span>
   );
 }

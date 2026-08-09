@@ -7,6 +7,8 @@ import { useSubscriptionStore } from "./use-subscription";
 interface ExtraOpts<T> extends Partial<UseQueryOptions<T>> {
   /** Override the auto-generated query key. Useful for windowed queries. */
   queryKey?: QueryKey;
+  /** Extra ARM query params, e.g. { "$filter": "eventTimestamp ge '...'" }. */
+  params?: Record<string, string | number | undefined>;
 }
 
 /**
@@ -19,12 +21,12 @@ export function useArmList<T>(
   opts: ExtraOpts<{ value: T[] }> = {},
 ) {
   const subId = useSubscriptionStore((s) => s.activeId);
-  const { queryKey: overrideKey, ...restOpts } = opts;
+  const { queryKey: overrideKey, params, ...restOpts } = opts;
   return useQuery<{ value: T[] }>({
-    queryKey: overrideKey ?? ["arm", subId, armPath, apiVersion],
+    queryKey: overrideKey ?? ["arm", subId, armPath, apiVersion, params],
     queryFn: () => {
       if (!subId) throw new Error("No active subscription");
-      return api.armList<T>(subId, armPath, apiVersion);
+      return api.armList<T>(subId, armPath, apiVersion, params);
     },
     enabled: Boolean(subId),
     staleTime: 60_000,
@@ -39,12 +41,12 @@ export function useArm<T>(
   opts: ExtraOpts<T> = {},
 ) {
   const subId = useSubscriptionStore((s) => s.activeId);
-  const { queryKey: overrideKey, ...restOpts } = opts;
+  const { queryKey: overrideKey, params, ...restOpts } = opts;
   return useQuery<T>({
-    queryKey: overrideKey ?? ["arm-single", subId, armPath, apiVersion],
+    queryKey: overrideKey ?? ["arm-single", subId, armPath, apiVersion, params],
     queryFn: () => {
       if (!subId) throw new Error("No active subscription");
-      return api.arm<T>(subId, armPath, apiVersion);
+      return api.arm<T>(subId, armPath, apiVersion, params);
     },
     enabled: Boolean(subId),
     staleTime: 60_000,

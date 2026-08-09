@@ -4,14 +4,22 @@ compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./out"
 
 # ------------------------------------------------------------------
-# Session cookie encryption key.
+# Runtime environment
 #
-# For local dev: put SESSION_SECRET into a .dev.vars file (gitignored).
-# For production: set it in the Cloudflare Pages dashboard under
-#   Settings -> Environment variables -> Production -> "Encrypt".
-# Generate a strong key with:
-#   node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+# SESSION_SECRET (required, ENCRYPTED)
+#   AES-GCM key material for session cookie encryption. Set in the
+#   Cloudflare Pages dashboard under Settings -> Environment variables ->
+#   Production -> tick "Encrypt". Local dev: put in .dev.vars (gitignored).
+#   Generate with:
+#     node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+#
+# AZURE_AD_CLIENT_ID (optional, plaintext)
+#   Multi-tenant app registration Client ID used for the Device Code login
+#   flow. Only required when you want end users to sign in with their own
+#   Azure AD account (no Service Principal). See DEPLOYMENT.md for the app
+#   registration checklist.
 # ------------------------------------------------------------------
 [vars]
-# Non-secret vars go here if we add any later. Session secret is a secret,
-# not a plaintext var.
+# Non-secret vars can go here. AZURE_AD_CLIENT_ID can live here in plaintext
+# since Client IDs are public identifiers, or in the dashboard alongside
+# the encrypted SESSION_SECRET — either works.

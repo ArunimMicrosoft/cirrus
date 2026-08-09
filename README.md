@@ -1,8 +1,8 @@
-# Cirrus — Read-only Azure visibility
+# Meridian — Read-only Azure visibility
 
-**Cirrus** is a read-only Azure inventory, cost intelligence, and compliance reporting tool that runs on **Cloudflare Pages** (static Next.js frontend + Pages Functions backend). Sign in with a Reader-role Service Principal and every subscription in your tenant is at your fingertips — VMs, costs, security posture, drift, all read-only.
+**Meridian** is a read-only Azure inventory, cost intelligence, and compliance reporting tool. Sign in with your own Azure AD account (no app-registration needed in your tenant) or a Reader-role Service Principal, and every subscription is at your fingertips — VMs, costs, security posture, drift, and three intelligence signals that turn raw inventory into "here's what to act on."
 
-**Built by [Arunim's IT Caffe](#)** · Deployed with GitHub Actions.
+**Live at [meridian.cloudcanvas.info](https://meridian.cloudcanvas.info)** · Built by **Arunim's IT Caffe** · v0.2.0
 
 **Deployment:** see [DEPLOYMENT.md](./DEPLOYMENT.md).
 
@@ -10,12 +10,15 @@
 
 ## What ships today
 
-- Service Principal auth (Azure AD client-credentials flow) with AES-GCM encrypted HttpOnly session cookies
+- Two auth methods: **Service Principal** (Azure AD client-credentials) **or** **Sign in with my account** (OAuth 2.0 Device Code — no app-registration permissions needed in the user's own tenant)
 - Azure Lighthouse multi-tenant discovery (HOME vs delegated indicators), full pagination across the ARM `/subscriptions` endpoint
 - Modern app shell with sidebar, top bar, and a prominent READ-ONLY badge always visible
 - **All 22 views** working end-to-end — inventory, cost, security, networking, monitoring, and tools
+- **Right-sizing verdict** — every Advisor recommendation graded high/medium/low confidence against 30 days of VM CPU metrics
+- **Drift risk classification** — every drift change scored RISKY / NOTABLE / benign, risky items float to the top
+- **Anomaly detection** — daily rollup captured in the browser, deviations flagged against a rolling 7-day baseline
 - Live Azure Retail Prices API for VM PAYG + 1-Yr / 3-Yr Reserved Instance costs (cached 24 h via Workers Cache API)
-- Client-side CSV + **branded PDF export** on every view (Cirrus wordmark, READ-ONLY watermark, "Built by Arunim's IT Caffe" footer credit)
+- Client-side CSV + **branded PDF export** on every view (Meridian wordmark, READ-ONLY watermark, "Built by Arunim's IT Caffe" footer credit)
 - CIS / STIG hardening classifier for every Virtual Machine
 - Cloud Drift Detector snapshots stored in the browser's IndexedDB (per-user, per-device — never leaves your machine)
 - Zero write operations. The ARM proxy hard-rejects every HTTP method except GET
@@ -71,7 +74,7 @@ Builds Next.js to `./out` and serves it plus the `functions/` directory via `wra
 Create a Service Principal with `Reader` on every subscription:
 
 ```powershell
-az ad sp create-for-rbac --name "cirrus-inventory" `
+az ad sp create-for-rbac --name "meridian-inventory" `
   --role Reader `
   --scopes /subscriptions/YOUR_SUBSCRIPTION_ID
 ```
@@ -96,7 +99,7 @@ Deployment happens through GitHub Actions on push to `main`. See [DEPLOYMENT.md]
 
 ## Read-only guarantee
 
-Four defensive layers combine to make it architecturally impossible for Cirrus to mutate Azure:
+Four defensive layers combine to make it architecturally impossible for Meridian to mutate Azure:
 
 1. **ARM proxy** (`functions/api/arm/[subscriptionId]/[[path]].ts`) hard-rejects every HTTP verb except GET with a 405.
 2. **Resource Graph** (`functions/api/graph.ts`) uses POST but the endpoint is a query-only Kusto engine — KQL has no INSERT / UPDATE / DELETE primitives.
@@ -122,4 +125,4 @@ No `@azure/arm-*` SDK that supports write operations is imported anywhere. Every
 
 ## Credit
 
-**Cirrus** is built by **Arunim's IT Caffe**.
+**Meridian** is built by **Arunim's IT Caffe**.

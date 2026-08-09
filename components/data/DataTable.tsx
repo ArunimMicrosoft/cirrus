@@ -87,8 +87,8 @@ export function DataTable<T>({
   return (
     <div className={cn("space-y-3", className)}>
       {searchPlaceholder !== null && (
-        <div className="flex items-center gap-2">
-          <div className="relative w-full max-w-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 md:max-w-sm">
             <Search className="pointer-events-none absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}

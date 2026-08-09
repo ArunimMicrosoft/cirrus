@@ -11,8 +11,8 @@ import {
   Shield,
   Globe2,
   Layers,
-  ArrowDown,
   ChevronDown,
+  Lightbulb,
 } from "lucide-react";
 import { PageHeader } from "@/components/data/PageHeader";
 import { DataTable, type DataColumn } from "@/components/data/DataTable";
@@ -466,6 +466,19 @@ function VmPathTab({
  */
 function NicPathBlock({ vm, nd }: { vm: VirtualMachine; nd: NicDetail }) {
   const hops = buildHops(vm, nd);
+
+  // Which hops have their plain-English panel open. `explainAll` opens them all
+  // via the master toggle; individual taps track in `openSteps`.
+  const [openSteps, setOpenSteps] = React.useState<Set<number>>(() => new Set());
+  const [explainAll, setExplainAll] = React.useState(false);
+  const toggleStep = (step: number) =>
+    setOpenSteps((prev) => {
+      const next = new Set(prev);
+      if (next.has(step)) next.delete(step);
+      else next.add(step);
+      return next;
+    });
+
   const hasPip = Boolean(nd.publicIp);
   const hasNicNsg = Boolean(nd.nicNsg);
   const hasSubnetNsg = Boolean(nd.subnetNsg);
@@ -558,19 +571,51 @@ function NicPathBlock({ vm, nd }: { vm: VirtualMachine; nd: NicDetail }) {
       <CardContent className="space-y-6">
         {/* Visual flow */}
         <div>
-          <div className="mb-3 text-[11.5px] font-semibold uppercase tracking-wider text-muted-foreground">
-            End-to-end path
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-[11.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+              End-to-end path
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-[11px]"
+              onClick={() => {
+                setExplainAll((v) => !v);
+                setOpenSteps(new Set());
+              }}
+            >
+              <Lightbulb className="h-3.5 w-3.5" />
+              {explainAll ? "Hide plain English" : "Explain in plain English"}
+            </Button>
           </div>
+          <p className="mb-3 text-[11px] text-muted-foreground">
+            Traffic flows top-to-bottom, from the internet edge down to the VM.
+            Tap any step for a plain-English explanation.
+          </p>
           <div className="space-y-0">
             {hops.map((h, i) => (
-              <React.Fragment key={h.step}>
-                <HopRow hop={h} />
+              <div
+                key={h.step}
+                className="animate-in fade-in slide-in-from-bottom-2"
+                style={{
+                  animationDelay: `${i * 80}ms`,
+                  animationDuration: "500ms",
+                  animationFillMode: "both",
+                }}
+              >
+                <HopRow
+                  hop={h}
+                  open={explainAll || openSteps.has(h.step)}
+                  onToggle={() => toggleStep(h.step)}
+                />
                 {i < hops.length - 1 && (
-                  <div className="flex items-center pl-6 text-muted-foreground/60">
-                    <ArrowDown className="h-3 w-3" />
+                  <div className="flex pl-[23px]" aria-hidden="true">
+                    <div className="cc-flow-track h-6">
+                      <span className="cc-flow-packet" />
+                    </div>
                   </div>
                 )}
-              </React.Fragment>
+              </div>
             ))}
           </div>
         </div>
@@ -643,6 +688,8 @@ interface Hop {
   kind: string;
   name: string;
   detail: string;
+  /** Plain-English, jargon-free explanation of what this hop means. */
+  plain: string;
   tone: "ok" | "info" | "warn" | "danger" | "primary";
   status: string;
 }
@@ -658,6 +705,7 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
       kind: "Public IP",
       name: nd.publicIp.name,
       detail: `IP: ${nd.publicIp.properties?.ipAddress ?? "Not assigned"} · SKU: ${nd.publicIp.sku?.name ?? "?"}`,
+      plain: `This machine has a public address (${nd.publicIp.properties?.ipAddress ?? "assigned"}), so anyone on the internet can try to reach it directly. Make sure a firewall is standing guard in front of it.`,
       tone: "warn",
       status: "Internet-facing",
     });
@@ -668,6 +716,8 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
       kind: "Public IP",
       name: "(none)",
       detail: "No public IP assigned",
+      plain:
+        "There's no public address here, so this machine can't be reached straight from the internet. It's only reachable from inside your own Azure network.",
       tone: "ok",
       status: "Internal only",
     });
@@ -682,6 +732,7 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
       kind: "NSG · NIC-scope",
       name: nd.nicNsg.name,
       detail: `${custom} custom rule${custom === 1 ? "" : "s"} + 6 default`,
+      plain: `A firewall is attached right onto this machine's network card. It inspects traffic and applies ${custom} of your own rule${custom === 1 ? "" : "s"} (plus Azure's 6 built-in ones) before anything reaches the machine.`,
       tone: "ok",
       status: "Active",
     });
@@ -692,6 +743,8 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
       kind: "NSG · NIC-scope",
       name: "(none)",
       detail: "No NSG bound to this NIC",
+      plain:
+        "No firewall is attached directly to this machine's network card. It has to rely on the subnet's firewall (if one exists) for protection.",
       tone: "warn",
       status: "Unprotected",
     });
@@ -706,6 +759,7 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
       kind: "NSG · Subnet-scope",
       name: `${nd.subnetNsg.name} on ${nd.subnetName}`,
       detail: `${custom} custom rule${custom === 1 ? "" : "s"} + 6 default`,
+      plain: `A firewall guards the whole subnet, so every machine sitting in it is filtered by these ${custom} rule${custom === 1 ? "" : "s"} (plus Azure's 6 defaults). This is the shared line of defence for the neighbourhood.`,
       tone: "ok",
       status: "Active",
     });
@@ -716,6 +770,8 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
       kind: "NSG · Subnet-scope",
       name: `(none) on ${nd.subnetName}`,
       detail: "No NSG bound to this subnet",
+      plain:
+        "There's no firewall on the subnet, so traffic isn't filtered at the neighbourhood level. Protection depends entirely on the network card's firewall.",
       tone: "warn",
       status: "Unprotected",
     });
@@ -728,6 +784,9 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
     kind: "Subnet",
     name: nd.subnetName,
     detail: nd.subnetPrefix ? `CIDR: ${nd.subnetPrefix}` : "",
+    plain: nd.subnetPrefix
+      ? `The machine lives in this slice of the network. Its address range (${nd.subnetPrefix}) decides how many devices can share this space.`
+      : "This is the slice of the network the machine lives in — a group of addresses kept together.",
     tone: "info",
     status: "",
   });
@@ -742,6 +801,10 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
       kind: "VNet",
       name: nd.vnet.name,
       detail: `CIDR: ${prefixes.join(", ") || "?"} · ${peerings} peering${peerings === 1 ? "" : "s"}`,
+      plain:
+        peerings > 0
+          ? `This is the private network everything lives inside. It's linked to ${peerings} other network${peerings === 1 ? "" : "s"} (peering), so traffic can flow between them — worth keeping in mind for security.`
+          : "This is the private network everything lives inside. It isn't linked to any other networks, so traffic stays contained here.",
       tone: "info",
       status: "",
     });
@@ -752,6 +815,7 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
       kind: "VNet",
       name: nd.vnetName,
       detail: "",
+      plain: "This is the private network the machine belongs to.",
       tone: "info",
       status: "",
     });
@@ -765,6 +829,7 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
     kind: "VM",
     name: vm.name,
     detail: `Size: ${size} · Private IP: ${nd.privateIp}`,
+    plain: `This is the destination — the virtual machine itself (a ${size}). Any traffic that makes it past the firewalls above ends up here at ${nd.privateIp}.`,
     tone: "primary",
     status: "Destination",
   });
@@ -772,7 +837,15 @@ function buildHops(vm: VirtualMachine, nd: NicDetail): Hop[] {
   return hops;
 }
 
-function HopRow({ hop }: { hop: Hop }) {
+function HopRow({
+  hop,
+  open,
+  onToggle,
+}: {
+  hop: Hop;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const toneClass = {
     ok: "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400",
     info: "border-border bg-muted/30 text-foreground",
@@ -790,38 +863,61 @@ function HopRow({ hop }: { hop: Hop }) {
   }[hop.tone];
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-3 rounded-md border px-3 py-2.5",
-        toneClass,
-      )}
-    >
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background/70">
-        {hop.icon}
-      </div>
-      <div className="flex-shrink-0 font-mono text-[10.5px] font-semibold uppercase tracking-wider opacity-70">
-        {hop.step}. {hop.kind}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="truncate font-mono text-[13px] font-medium text-foreground">
-          {hop.name}
+    <div className={cn("cc-hop rounded-md border", toneClass)}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      >
+        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background/70">
+          {hop.icon}
         </div>
-        {hop.detail && (
-          <div className="truncate text-[11px] text-muted-foreground">
-            {hop.detail}
+        <div className="flex-shrink-0 font-mono text-[10.5px] font-semibold uppercase tracking-wider opacity-70">
+          {hop.step}. {hop.kind}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-mono text-[13px] font-medium text-foreground">
+            {hop.name}
           </div>
-        )}
-      </div>
-      {hop.status && (
-        <span
-          className={cn(
-            "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold",
-            statusBadge,
+          {hop.detail && (
+            <div className="truncate text-[11px] text-muted-foreground">
+              {hop.detail}
+            </div>
           )}
-        >
-          {hop.status}
-        </span>
-      )}
+        </div>
+        {hop.status && (
+          <span
+            className={cn(
+              "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold",
+              statusBadge,
+            )}
+          >
+            {hop.status}
+          </span>
+        )}
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-300",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {/* Plain-English panel — smooth expand/collapse via the grid-rows trick. */}
+      <div
+        className={cn(
+          "grid px-3 transition-all duration-300 ease-out",
+          open ? "grid-rows-[1fr] pb-3 opacity-100" : "grid-rows-[0fr] opacity-0",
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="flex items-start gap-2 rounded-md bg-background/60 p-2.5 text-[12px] leading-relaxed text-foreground/80">
+            <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+            <span>{hop.plain}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1223,6 +1319,3 @@ function SimulatorTab({ nsgs }: { nsgs: NetworkSecurityGroup[] }) {
     </Card>
   );
 }
-
-// Silence unused-import warning without shipping a real ChevronDown.
-void ChevronDown;

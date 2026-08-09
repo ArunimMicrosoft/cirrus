@@ -38,7 +38,11 @@ export async function requireSession(
   if (!env.SESSION_SECRET) {
     return [null, errorJson("SESSION_SECRET is not configured on the server", 500)];
   }
-  const session = await readSession(request, env.SESSION_SECRET);
+  const session = await readSession(
+    request,
+    env.SESSION_SECRET,
+    env.SESSION_EPOCH,
+  );
   if (!session) {
     return [null, errorJson("Not authenticated", 401)];
   }

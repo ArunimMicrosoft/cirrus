@@ -124,8 +124,9 @@ export default function AlertsPage() {
     return d.toISOString();
   }, [windowDays]);
 
-  // Activity log endpoint requires a $filter for eventTimestamp.
-  // The ARM proxy passes query params through untouched.
+  // The activity log endpoint REQUIRES a $filter with at least an
+  // eventTimestamp range, otherwise ARM returns 400 "The filter criteria is
+  // not specified." We send it through the proxy as a query param.
   const filter = `eventTimestamp ge '${start}'`;
 
   const { data, isLoading, isError, error } = useArmList<ActivityLogEvent>(
@@ -133,13 +134,12 @@ export default function AlertsPage() {
     ArmApi.monitorActivityLog,
     {
       queryKey: ["activity-log", activeId, windowDays],
-      // Custom queryKey to bust cache when window changes.
+      params: { $filter: filter },
     },
   );
 
-  // ARM's activity log accepts $filter but not through our proxy's forwarding
-  // yet — pass via query param directly through the api client would need
-  // update. For Phase 5 we filter client-side over the returned window.
+  // Belt-and-suspenders: also filter client-side in case the returned page
+  // includes events at the boundary.
   const cutoff = Date.parse(start);
   const events = (data?.value ?? []).filter((e) => {
     const t = e.eventTimestamp ? Date.parse(e.eventTimestamp) : NaN;
@@ -154,7 +154,6 @@ export default function AlertsPage() {
   ).length;
 
   if (!activeId) return <NoSubscriptionState />;
-  void filter; // reserved for future server-side push
 
   return (
     <>

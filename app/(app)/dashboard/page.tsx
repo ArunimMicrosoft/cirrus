@@ -16,7 +16,9 @@ import {
 import { PageHeader } from "@/components/data/PageHeader";
 import { StatCard } from "@/components/data/StatCard";
 import { NoSubscriptionState } from "@/components/data/NoSubscriptionState";
+import { AnomaliesPanel } from "@/components/data/AnomaliesPanel";
 import { useArmList } from "@/lib/hooks/use-arm";
+import { useAnomalies } from "@/lib/hooks/use-anomalies";
 import { useSubscriptionStore } from "@/lib/hooks/use-subscription";
 import { ArmApi } from "@/lib/azure/arm";
 import { formatNumber } from "@/lib/utils";
@@ -58,25 +60,38 @@ export default function DashboardPage() {
     "/providers/Microsoft.Storage/storageAccounts",
     ArmApi.storage,
   );
-  const web = useArmList<AppService>(
-    "/providers/Microsoft.Web/sites",
-    ArmApi.web,
-  );
-  const sql = useArmList<SqlServer>(
-    "/providers/Microsoft.Sql/servers",
-    ArmApi.sql,
-  );
+  const web = useArmList<AppService>("/providers/Microsoft.Web/sites", ArmApi.web);
+  const sql = useArmList<SqlServer>("/providers/Microsoft.Sql/servers", ArmApi.sql);
+
+  // Anomaly detection (shared hook — re-uses the same ARM queries above via
+  // React Query cache, then handles baseline capture + detection).
+  const {
+    anomalies,
+    sessionCount,
+    isReady: anomaliesReady,
+  } = useAnomalies();
 
   if (!activeId) return <NoSubscriptionState />;
 
-  const errs = [rgs.error, vms.error, disks.error, nsgs.error, pips.error, storage.error, web.error, sql.error].filter(Boolean);
+  const errs = [
+    rgs.error,
+    vms.error,
+    disks.error,
+    nsgs.error,
+    pips.error,
+    storage.error,
+    web.error,
+    sql.error,
+  ].filter(Boolean);
 
-  const unattachedDisks = disks.data?.value.filter((d) => !d.managedBy).length ?? 0;
-  const unusedPips = pips.data?.value.filter((p) => !p.properties?.ipConfiguration).length ?? 0;
+  const unattachedDisks =
+    disks.data?.value.filter((d) => !d.managedBy).length ?? 0;
+  const unusedPips =
+    pips.data?.value.filter((p) => !p.properties?.ipConfiguration).length ?? 0;
   const untaggedRgs =
-    rgs.data?.value.filter((r) => !r.tags || Object.keys(r.tags).length === 0).length ?? 0;
+    rgs.data?.value.filter((r) => !r.tags || Object.keys(r.tags).length === 0)
+      .length ?? 0;
 
-  // Risky inbound NSG rules from Internet.
   const risky =
     nsgs.data?.value.reduce((count, nsg) => {
       const rules = nsg.properties?.securityRules ?? [];
@@ -96,14 +111,12 @@ export default function DashboardPage() {
       );
     }, 0) ?? 0;
 
-  // Region distribution across VMs.
   const regionCounts = new Map<string, number>();
   vms.data?.value.forEach((vm) => {
     regionCounts.set(vm.location, (regionCounts.get(vm.location) ?? 0) + 1);
   });
   const topRegions = [...regionCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
 
-  // Top VM sizes.
   const sizeCounts = new Map<string, number>();
   vms.data?.value.forEach((vm) => {
     const size = vm.properties?.hardwareProfile?.vmSize ?? "Unknown";
@@ -118,7 +131,11 @@ export default function DashboardPage() {
       <PageHeader
         icon={<HomeIcon className="h-5 w-5" />}
         title="Dashboard"
-        description={activeName ? `Live snapshot of ${activeName}` : "Live snapshot from Azure Resource Manager"}
+        description={
+          activeName
+            ? `Live snapshot of ${activeName}`
+            : "Live snapshot from Azure Resource Manager"
+        }
       />
 
       {errs.length > 0 && errs[0] && (
@@ -138,42 +155,12 @@ export default function DashboardPage() {
           </h2>
         </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-          <StatCard
-            label="Resource Groups"
-            value={formatNumber(rgs.data?.value.length ?? 0)}
-            icon={<LayoutGrid className="h-4 w-4" />}
-            loading={rgs.isLoading}
-          />
-          <StatCard
-            label="Virtual Machines"
-            value={formatNumber(totalVms)}
-            icon={<Server className="h-4 w-4" />}
-            loading={vms.isLoading}
-          />
-          <StatCard
-            label="Disks"
-            value={formatNumber(disks.data?.value.length ?? 0)}
-            icon={<HardDrive className="h-4 w-4" />}
-            loading={disks.isLoading}
-          />
-          <StatCard
-            label="Storage Accts"
-            value={formatNumber(storage.data?.value.length ?? 0)}
-            icon={<HardDrive className="h-4 w-4" />}
-            loading={storage.isLoading}
-          />
-          <StatCard
-            label="App Services"
-            value={formatNumber(web.data?.value.length ?? 0)}
-            icon={<Cloud className="h-4 w-4" />}
-            loading={web.isLoading}
-          />
-          <StatCard
-            label="SQL Servers"
-            value={formatNumber(sql.data?.value.length ?? 0)}
-            icon={<Database className="h-4 w-4" />}
-            loading={sql.isLoading}
-          />
+          <StatCard label="Resource Groups" value={formatNumber(rgs.data?.value.length ?? 0)} icon={<LayoutGrid className="h-4 w-4" />} loading={rgs.isLoading} />
+          <StatCard label="Virtual Machines" value={formatNumber(totalVms)} icon={<Server className="h-4 w-4" />} loading={vms.isLoading} />
+          <StatCard label="Disks" value={formatNumber(disks.data?.value.length ?? 0)} icon={<HardDrive className="h-4 w-4" />} loading={disks.isLoading} />
+          <StatCard label="Storage Accts" value={formatNumber(storage.data?.value.length ?? 0)} icon={<HardDrive className="h-4 w-4" />} loading={storage.isLoading} />
+          <StatCard label="App Services" value={formatNumber(web.data?.value.length ?? 0)} icon={<Cloud className="h-4 w-4" />} loading={web.isLoading} />
+          <StatCard label="SQL Servers" value={formatNumber(sql.data?.value.length ?? 0)} icon={<Database className="h-4 w-4" />} loading={sql.isLoading} />
         </div>
       </section>
 
@@ -185,44 +172,22 @@ export default function DashboardPage() {
           </h2>
         </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatCard
-            label="NSGs"
-            value={formatNumber(nsgs.data?.value.length ?? 0)}
-            icon={<Shield className="h-4 w-4" />}
-            loading={nsgs.isLoading}
-          />
-          <StatCard
-            label="Public IPs"
-            value={formatNumber(pips.data?.value.length ?? 0)}
-            icon={<Network className="h-4 w-4" />}
-            loading={pips.isLoading}
-          />
-          <StatCard
-            label="Orphan resources"
-            value={formatNumber(unattachedDisks + unusedPips)}
-            delta={`${unattachedDisks} disks · ${unusedPips} IPs`}
-            deltaTone={unattachedDisks + unusedPips > 0 ? "negative" : "positive"}
-            icon={<HardDrive className="h-4 w-4" />}
-            loading={disks.isLoading || pips.isLoading}
-          />
-          <StatCard
-            label="Untagged RGs"
-            value={formatNumber(untaggedRgs)}
-            delta={`of ${rgs.data?.value.length ?? 0} total`}
-            deltaTone={untaggedRgs > 0 ? "negative" : "positive"}
-            icon={<LayoutGrid className="h-4 w-4" />}
-            loading={rgs.isLoading}
-          />
+          <StatCard label="NSGs" value={formatNumber(nsgs.data?.value.length ?? 0)} icon={<Shield className="h-4 w-4" />} loading={nsgs.isLoading} />
+          <StatCard label="Public IPs" value={formatNumber(pips.data?.value.length ?? 0)} icon={<Network className="h-4 w-4" />} loading={pips.isLoading} />
+          <StatCard label="Orphan resources" value={formatNumber(unattachedDisks + unusedPips)} delta={`${unattachedDisks} disks · ${unusedPips} IPs`} deltaTone={unattachedDisks + unusedPips > 0 ? "negative" : "positive"} icon={<HardDrive className="h-4 w-4" />} loading={disks.isLoading || pips.isLoading} />
+          <StatCard label="Untagged RGs" value={formatNumber(untaggedRgs)} delta={`of ${rgs.data?.value.length ?? 0} total`} deltaTone={untaggedRgs > 0 ? "negative" : "positive"} icon={<LayoutGrid className="h-4 w-4" />} loading={rgs.isLoading} />
         </div>
       </section>
 
+      <AnomaliesPanel
+        anomalies={anomalies}
+        sessionCount={sessionCount}
+        isReady={anomaliesReady}
+      />
+
       {nsgs.isSuccess && (
         <Alert variant={risky > 0 ? "destructive" : "success"}>
-          {risky > 0 ? (
-            <ShieldAlert className="h-4 w-4" />
-          ) : (
-            <Shield className="h-4 w-4" />
-          )}
+          {risky > 0 ? <ShieldAlert className="h-4 w-4" /> : <Shield className="h-4 w-4" />}
           <AlertTitle>
             {risky > 0
               ? `${risky} NSG rule${risky === 1 ? "" : "s"} open to Internet on critical ports`
@@ -261,10 +226,7 @@ export default function DashboardPage() {
                           </span>
                         </div>
                         <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full rounded-full bg-primary"
-                            style={{ width: `${Math.max(4, pct)}%` }}
-                          />
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(4, pct)}%` }} />
                         </div>
                       </li>
                     );
@@ -297,10 +259,7 @@ export default function DashboardPage() {
                           </span>
                         </div>
                         <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full rounded-full bg-primary/70"
-                            style={{ width: `${Math.max(4, pct)}%` }}
-                          />
+                          <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(4, pct)}%` }} />
                         </div>
                       </li>
                     );

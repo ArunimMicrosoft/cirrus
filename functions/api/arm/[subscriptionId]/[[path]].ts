@@ -29,6 +29,7 @@
  */
 
 import { armList, armFetch, ArmError } from "@/lib/azure/arm";
+import { getArmTokenForSession } from "@/lib/azure/auth";
 import { errorJson, json, methodNotAllowed, requireSession } from "@/functions/_utils";
 import type { Env } from "@/functions/types";
 
@@ -64,18 +65,13 @@ export const onRequest: PagesFunction<
     query[k] = v;
   }
 
-  const sp = {
-    tenantId: session.tenantId,
-    clientId: session.clientId,
-    clientSecret: session.clientSecret,
-  };
-
   try {
+    const { token } = await getArmTokenForSession(session);
     if (paginate) {
-      const value = await armList<unknown>(sp, armPath, { apiVersion, query });
+      const value = await armList<unknown>(token, armPath, { apiVersion, query });
       return json({ value });
     }
-    const result = await armFetch<unknown>(sp, armPath, { apiVersion, query });
+    const result = await armFetch<unknown>(token, armPath, { apiVersion, query });
     return json(result);
   } catch (e) {
     if (e instanceof ArmError) {

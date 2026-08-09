@@ -1,0 +1,26 @@
+# Cloudflare Pages security headers.
+# Applied to every response served from the site. Documented at
+# https://developers.cloudflare.com/pages/configuration/headers/
+#
+# Content-Security-Policy notes:
+#   • script-src includes 'unsafe-inline' because Next.js injects a small
+#     bootstrap + __NEXT_DATA__ inline script per page. React's default
+#     escaping prevents user-supplied strings from becoming executable
+#     script anyway, so the practical XSS exposure is unchanged.
+#   • connect-src is 'self' only — all Azure calls go through our own
+#     /api/* endpoints, so the browser never contacts Microsoft directly.
+#     Any new outbound host must be added here explicitly.
+#   • frame-ancestors 'none' + X-Frame-Options DENY = defence-in-depth
+#     against clickjacking.
+
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'self'; object-src 'none'; upgrade-insecure-requests
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=(), browsing-topics=()
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  X-DNS-Prefetch-Control: off
+  X-Permitted-Cross-Domain-Policies: none

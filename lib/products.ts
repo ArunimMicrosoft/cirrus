@@ -14,7 +14,7 @@
 export type FamilyProductStatus = "current" | "live" | "coming-soon";
 
 export interface FamilyProduct {
-  /** Display name, e.g. "Cirrus" */
+  /** Display name, e.g. "Meridian" */
   name: string;
   /** One-line positioning under the name, e.g. "Read-only Azure visibility" */
   tagline: string;
@@ -29,7 +29,7 @@ export interface FamilyProduct {
 
 export const FAMILY_PRODUCTS: FamilyProduct[] = [
   {
-    name: "Cirrus",
+    name: "Meridian",
     tagline: "Read-only Azure visibility",
     description:
       "Inventory, cost intelligence, security posture, and compliance reporting for every subscription in your tenant. All read-only.",
@@ -37,11 +37,20 @@ export const FAMILY_PRODUCTS: FamilyProduct[] = [
   },
   {
     name: "CloudCanvas",
-    tagline: "Cloud architecture design",
+    tagline: "Design, Validate & Export Azure Architetcures",
     description:
-      "Design, diagram, and share cloud architectures visually — a canvas built for the way cloud teams actually think.",
+      "Transform the way you design Azure solutions. Visually create and validate Azure architecture diagrams, generate ready-to-deploy Infrastructure as Code using Terraform or Bicep, and discover your existing Azure environment by reverse-engineering live infrastructure into clear, interactive architecture diagrams.",
     url: "https://cloudcanvas.co",
     domain: "cloudcanvas.co",
+    status: "live",
+  },
+  {
+    name: "CloudCanvas.info",
+    tagline: "Digital Platform",
+    description:
+      "Elevate your projects with premium digital templates made for every moment. Explore a curated range of customizable designs including invitations, planners, e-books, wedding stationery, and more. With instant downloads and easy editing, you can create professional-looking designs quickly and confidently.",
+    url: "https://cloudcanvas.info",
+    domain: "cloudcanvas.info",
     status: "live",
   },
 ];
