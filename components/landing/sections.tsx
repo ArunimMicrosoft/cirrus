@@ -32,7 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { BRAND } from "@/lib/brand";
 import { FAMILY_PRODUCTS, type FamilyProduct } from "@/lib/products";
-import { ALGORITHMS } from "@/lib/algorithms";
+import { getAlgorithms } from "@/lib/algorithms";
 import { Reveal, CountUp } from "@/components/landing/motion";
 import { ReachabilityGraphPanel } from "@/components/landing/ReachabilityShowcase";
 import { DemoButton } from "@/components/auth/DemoButton";
@@ -1061,12 +1061,14 @@ export function FileModeSection() {
  * -----------------------------------------------------------*/
 
 export function Algorithms() {
-  const byField = new Map<string, Array<{ name: string; role: string }>>();
-  for (const a of Object.values(ALGORITHMS)) {
-    if (!byField.has(a.field)) byField.set(a.field, []);
-    byField.get(a.field)!.push({ name: a.name, role: a.role });
-  }
-  const fields = [...byField.entries()];
+  const highlights = getAlgorithms([
+    "costForecast",
+    "dijkstra",
+    "distributionSizing",
+    "cusum",
+    "segmentationScore",
+    "riOptimizer",
+  ]);
 
   return (
     <section id="algorithms" className="relative border-b border-border/60 bg-muted/20">
@@ -1075,50 +1077,36 @@ export function Algorithms() {
         <div className="mb-12 max-w-3xl">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
             <LiveDot />
-            Under the hood
+            Answers, not dashboards
           </div>
           <h2 className="mt-3 font-display text-[32px] leading-tight tracking-tight md:text-[46px]">
-            Named algorithms. No black box.
+            Your estate, turned into a to-do list.
           </h2>
           <p className="mt-4 text-[14.5px] leading-relaxed text-muted-foreground">
-            Every intelligence feature is a peer-reviewed technique you can
-            look up, audit, and reproduce — running in your browser, on data
-            already fetched. No LLM, no external inference, nothing leaves
-            your tenant. Each in-app view names the algorithm powering it.
+            {BRAND.name} does the analysis for you and hands back plain-English
+            answers — what to fix, what to save, what to watch next. No black
+            box, no AI guesswork, and nothing about your estate ever leaves
+            your tenant.
           </p>
         </div>
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {fields.map(([field, algos], i) => (
-            <Reveal key={field} delay={i * 90} className="h-full">
-            <div className="cc-panel h-full rounded-xl p-5">
-              <div className="mb-3 flex items-baseline justify-between border-b pb-3">
-                <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.13em] text-primary">
-                  {field}
-                </h3>
-                <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground">
-                  {algos.length.toString().padStart(2, "0")}
-                </span>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {highlights.map((a, i) => (
+            <Reveal key={a.name} delay={i * 90} className="h-full">
+              <div className="cc-panel flex h-full flex-col gap-3 rounded-xl p-5">
+                <div className="font-display text-[19px] leading-tight tracking-tight">
+                  {a.plainName}
+                </div>
+                <p className="text-[13px] leading-relaxed text-muted-foreground">
+                  {a.why}
+                </p>
               </div>
-              <ul className="space-y-2.5">
-                {algos.map((a) => (
-                  <li key={a.name}>
-                    <div className="font-mono text-[12.5px] font-medium text-foreground">
-                      {a.name}
-                    </div>
-                    <div className="text-[11.5px] leading-snug text-muted-foreground">
-                      {a.role}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
             </Reveal>
           ))}
         </div>
-        <p className="mt-8 font-mono text-[11px] text-muted-foreground">
-          Holt-Winters · Theil-Sen · k-means++ · Dijkstra · Tarjan · CUSUM ·
-          PELT · First-Fit-Decreasing · CIDR/port interval algebra · MAD
-          z-score — all client-side, all auditable.
+        <p className="mt-8 text-[13px] leading-relaxed text-muted-foreground">
+          Every insight is backed by proven, auditable math that runs right in
+          your browser. You get the answer up front — the how is always one
+          click away.
         </p>
       </div>
     </section>
