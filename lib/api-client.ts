@@ -4,6 +4,14 @@
  */
 
 import type { AzureSubscription } from "./azure/types";
+import { getOfflineEstate } from "./hooks/use-offline";
+import { offlineSubscription, resolveEstateList, resolveEstateSingle } from "./offline/estate";
+import { demoInstanceView, demoMetrics, demoCost, demoArmList, demoGraph } from "./offline/demo-api";
+
+const OFFLINE_LIVE_ONLY = (feature: string) =>
+  new Error(
+    `${feature} needs a live Azure connection — that data isn't present in an infrastructure file. Connect a tenant to use it.`,
+  );
 
 export interface AuthState {
   authenticated: boolean;
@@ -143,7 +151,13 @@ async function jsonFetch<T>(
 
 export const api = {
   auth: {
-    me: () => jsonFetch<AuthState>("/api/auth/me"),
+    me: (): Promise<AuthState> => {
+      const estate = getOfflineEstate();
+      if (estate) {
+        return Promise.resolve({ authenticated: true, type: "sp", tenantId: "file" });
+      }
+      return jsonFetch<AuthState>("/api/auth/me");
+    },
     login: (payload: LoginRequest) =>
       jsonFetch<LoginResponse>("/api/auth/login", {
         method: "POST",
@@ -163,7 +177,11 @@ export const api = {
         body: JSON.stringify({ deviceCode, lighthouse }),
       }),
   },
-  subscriptions: () => jsonFetch<{ value: AzureSubscription[] }>("/api/subscriptions"),
+  subscriptions: (): Promise<{ value: AzureSubscription[] }> => {
+    const estate = getOfflineEstate();
+    if (estate) return Promise.resolve({ value: [offlineSubscription(estate)] });
+    return jsonFetch<{ value: AzureSubscription[] }>("/api/subscriptions");
+  },
   /**
    * Generic ARM proxy. Pass the ARM path (without the leading `/subscriptions/{sub}`)
    * and the subscription ID; the proxy inserts the correct path and Bearer token.
@@ -174,12 +192,24 @@ export const api = {
     armPath: string,
     apiVersion: string,
     params?: Record<string, string | number | undefined>,
-  ) =>
-    jsonFetch<T>(
+  ): Promise<T> => {
+    const estate = getOfflineEstate();
+    if (estate) {
+      if (estate.demo) {
+        const lp = armPath.toLowerCase();
+        if (lp.endsWith("/instanceview")) return Promise.resolve(demoInstanceView(armPath) as T);
+        if (lp.includes("/microsoft.insights/metrics")) return Promise.resolve(demoMetrics(armPath, params) as T);
+      }
+      const found = resolveEstateSingle(estate, armPath);
+      if (found) return Promise.resolve(found as T);
+      return Promise.reject(OFFLINE_LIVE_ONLY("This resource"));
+    }
+    return jsonFetch<T>(
       `/api/arm/${encodeURIComponent(subscriptionId)}${
         armPath.startsWith("/") ? armPath : `/${armPath}`
       }?api-version=${encodeURIComponent(apiVersion)}${encodeParams(params)}`,
-    ),
+    );
+  },
   /**
    * Same as arm() but walks pagination server-side and returns the aggregated array.
    */
@@ -188,18 +218,32 @@ export const api = {
     armPath: string,
     apiVersion: string,
     params?: Record<string, string | number | undefined>,
-  ) =>
-    jsonFetch<{ value: T[] }>(
+  ): Promise<{ value: T[] }> => {
+    const estate = getOfflineEstate();
+    if (estate) {
+      if (estate.demo) {
+        const handled = demoArmList(armPath, params, estate);
+        if (handled) return Promise.resolve(handled as { value: T[] });
+      }
+      return Promise.resolve({ value: resolveEstateList(estate, armPath) as T[] });
+    }
+    return jsonFetch<{ value: T[] }>(
       `/api/arm/${encodeURIComponent(subscriptionId)}${
         armPath.startsWith("/") ? armPath : `/${armPath}`
       }?api-version=${encodeURIComponent(apiVersion)}&_paginate=1${encodeParams(params)}`,
-    ),
+    );
+  },
   /**
    * Read-only Azure Resource Graph (KQL) query. Body is passed through as-is
    * to the Resource Graph API which is a query-only Kusto engine.
    */
-  graph: <T = unknown>(query: string, subscriptions?: string[], top = 500) =>
-    jsonFetch<{
+  graph: <T = unknown>(query: string, subscriptions?: string[], top = 500) => {
+    const estate = getOfflineEstate();
+    if (estate?.demo) {
+      return Promise.resolve(demoGraph(query, estate) as { totalRecords: number; count: number; data: T[]; skipToken?: string });
+    }
+    if (estate) return Promise.reject(OFFLINE_LIVE_ONLY("Resource Graph"));
+    return jsonFetch<{
       totalRecords: number;
       count: number;
       data: T[];
@@ -207,7 +251,8 @@ export const api = {
     }>("/api/graph", {
       method: "POST",
       body: JSON.stringify({ query, subscriptions, top }),
-    }),
+    });
+  },
   /**
    * Read-only Azure Cost Management actual-cost query. POST is the API
    * contract (query definition in body); it is an analytics query engine
@@ -218,11 +263,15 @@ export const api = {
     from: string,
     to: string,
     granularity: "Daily" | "Monthly" = "Daily",
-  ) =>
-    jsonFetch<T>("/api/cost", {
+  ) => {
+    const estate = getOfflineEstate();
+    if (estate?.demo) return Promise.resolve(demoCost(estate, from, to) as T);
+    if (estate) return Promise.reject(OFFLINE_LIVE_ONLY("Cost analysis"));
+    return jsonFetch<T>("/api/cost", {
       method: "POST",
       body: JSON.stringify({ subscriptionId, from, to, granularity }),
-    }),
+    });
+  },
   /** VM price lookup (PAYG + optional RI). */
   vmPrice: (size: string, region: string, ri = false) =>
     jsonFetch<{

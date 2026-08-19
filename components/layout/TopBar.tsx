@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { SubscriptionPicker } from "./SubscriptionPicker";
 import { useAuthState, useLogout } from "@/lib/hooks/use-auth";
 import { useUiStore } from "@/lib/hooks/use-ui";
+import { useIsOffline } from "@/lib/hooks/use-offline";
 import { ThemeToggle } from "./ThemeToggle";
 
 export function TopBar() {
@@ -13,6 +14,7 @@ export function TopBar() {
   const logout = useLogout();
   const router = useRouter();
   const toggleMobileNav = useUiStore((s) => s.toggleMobileNav);
+  const isOffline = useIsOffline();
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b bg-background/85 px-3 backdrop-blur-md md:gap-4 md:px-6">
@@ -38,7 +40,7 @@ export function TopBar() {
 
         <ThemeToggle />
 
-        {auth?.authenticated && (
+        {auth?.authenticated && !isOffline && (
           <>
             <div className="hidden items-center gap-1.5 rounded-md border bg-card/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground md:flex">
               {auth.lighthouse ? (

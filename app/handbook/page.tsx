@@ -21,6 +21,7 @@ const SECTIONS: TocSection[] = [
   { id: "intro", title: "What Meridian is" },
   { id: "who", title: "Who it is for" },
   { id: "signin", title: "How you sign in" },
+  { id: "filemode", title: "Analyze from a file (no tenant)" },
   { id: "click", title: "What happens when you click" },
   { id: "guarantee", title: "The read-only guarantee" },
   { id: "data", title: "Where every piece of data lives" },
@@ -46,7 +47,7 @@ export default function HandbookPage() {
               The handbook
             </span>
             <span className="hidden md:inline">·</span>
-            <span className="hidden md:inline">11 sections · full technical spec</span>
+            <span className="hidden md:inline">12 sections · full technical spec</span>
             <span className="ml-auto hidden font-mono normal-case md:inline">
               {BRAND.host}/handbook
             </span>
@@ -85,6 +86,7 @@ export default function HandbookPage() {
             <IntroSection />
             <WhoSection />
             <SignInSection />
+            <FileModeHandbookSection />
             <ClickSection />
             <GuaranteeSection />
             <DataSection />
@@ -268,10 +270,75 @@ function SignInSection() {
   );
 }
 
+function FileModeHandbookSection() {
+  return (
+    <section className="space-y-5">
+      <SectionTitle id="filemode" eyebrow="04 · File mode" title="Analyze from a file (no tenant access)" />
+      <P>
+        Not every team can grant even read-only access on day one. For those
+        cases Meridian has <Strong>File mode</Strong>: upload an exported ARM
+        template or a Terraform state file and the same network and
+        configuration analysis runs against it — no Azure connection, no
+        credentials.
+      </P>
+      <Callout tone="success">
+        <div className="mb-1 font-semibold text-foreground">Parsed entirely in your browser</div>
+        The file is read and analyzed client-side. It is never uploaded to any
+        server, and File mode needs no Azure credentials at all. The parsed
+        result lives only in your browser tab and clears when you leave.
+      </Callout>
+      <P>Supported inputs:</P>
+      <ul className="space-y-2 text-[14.5px] leading-relaxed text-muted-foreground">
+        <li className="border-l border-border pl-4">
+          <Strong>Terraform state</Strong> — a{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-[12px]">.tfstate</code> file or{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-[12px]">terraform show -json</code>{" "}
+          output. Most accurate, because state holds fully-resolved values and
+          real resource IDs.
+        </li>
+        <li className="border-l border-border pl-4">
+          <Strong>Azure ARM JSON</Strong> — an{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-[12px]">az resource list</code>{" "}
+          export, an ARM REST list, an exported template, or a single resource.
+        </li>
+      </ul>
+      <P>
+        For deployment templates, Meridian evaluates the ARM expression
+        language — <code className="rounded bg-muted px-1 py-0.5 text-[12px]">parameters()</code>,{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-[12px]">variables()</code>,{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-[12px]">concat()</code>,{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-[12px]">resourceId()</code> and friends —
+        so resource names and references resolve instead of showing raw{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-[12px]">[parameters(&apos;…&apos;)]</code>{" "}
+        strings.
+      </P>
+      <Callout tone="success">
+        <div className="mb-1 font-semibold text-foreground">Works from a file</div>
+        Network topology and subnet reachability, segmentation score, VNet
+        peering, route analysis, NSG rules, public exposure, IPAM, and core
+        inventory (VMs, storage, SQL, Key Vault, public IPs, app gateways) —
+        everything that is declared configuration.
+      </Callout>
+      <Callout tone="warning">
+        <div className="mb-1 font-semibold text-foreground">Needs a live connection</div>
+        Cost, right-sizing, metrics, and anomaly signals depend on billing and
+        telemetry that isn&apos;t present in an infrastructure file, so those
+        views are clearly disabled in File mode rather than shown with empty or
+        invented numbers.
+      </Callout>
+      <P>
+        Throughout File mode a persistent banner marks the data as file-based —
+        naming the file and stamping the &ldquo;as of&rdquo; time — so it is
+        never mistaken for a live tenant view.
+      </P>
+    </section>
+  );
+}
+
 function ClickSection() {
   return (
     <section className="space-y-5">
-      <SectionTitle id="click" eyebrow="04 · Data flow" title="What happens when you click a view" />
+      <SectionTitle id="click" eyebrow="05 · Data flow" title="What happens when you click a view" />
       <P>
         When you open any inventory or cost view — say, Virtual Machines —
         the request flow is:
@@ -334,7 +401,7 @@ function ClickSection() {
 function GuaranteeSection() {
   return (
     <section className="space-y-5">
-      <SectionTitle id="guarantee" eyebrow="05 · Security" title="The read-only guarantee — four layers" />
+      <SectionTitle id="guarantee" eyebrow="06 · Security" title="The read-only guarantee — four layers" />
       <P>
         The core promise is that Meridian cannot mutate your Azure. That
         promise rests on four independent defensive layers. All four must
@@ -395,7 +462,7 @@ function GuaranteeSection() {
 function DataSection() {
   return (
     <section className="space-y-5">
-      <SectionTitle id="data" eyebrow="06 · Data map" title="Where every piece of data lives" />
+      <SectionTitle id="data" eyebrow="07 · Data map" title="Where every piece of data lives" />
       <P>
         A full audit of what is stored where, for how long, and how it is
         protected. There is no other state.
@@ -472,7 +539,7 @@ function DataSection() {
 function DoesntSection() {
   return (
     <section className="space-y-5">
-      <SectionTitle id="doesnt" eyebrow="07 · Boundaries" title="What Meridian does not do" />
+      <SectionTitle id="doesnt" eyebrow="08 · Boundaries" title="What Meridian does not do" />
       <P>
         Explicit boundaries make the app easier to reason about. Meridian
         deliberately does not:
@@ -520,7 +587,7 @@ function DoesntSection() {
 function SignalsSection() {
   return (
     <section className="space-y-5">
-      <SectionTitle id="signals" eyebrow="08 · Intelligence" title="How the intelligence signals work" />
+      <SectionTitle id="signals" eyebrow="09 · Intelligence" title="How the intelligence signals work" />
       <P>
         Three signals turn raw inventory into "here is what to act on."
         All three run entirely in your browser against data Meridian has
@@ -592,7 +659,7 @@ function SignalsSection() {
 function ArchSection() {
   return (
     <section className="space-y-5">
-      <SectionTitle id="arch" eyebrow="09 · Architecture" title="Deployment architecture" />
+      <SectionTitle id="arch" eyebrow="10 · Architecture" title="Deployment architecture" />
       <P>
         A static single-page app plus a small set of stateless serverless
         functions on a managed edge platform — no always-on server, no VM or
@@ -606,7 +673,7 @@ function ArchSection() {
 function ReviewSection() {
   return (
     <section className="space-y-5">
-      <SectionTitle id="review" eyebrow="10 · Audit checklist" title="Security review checklist for your CISO" />
+      <SectionTitle id="review" eyebrow="11 · Audit checklist" title="Security review checklist for your CISO" />
       <P>
         A one-page summary a security reviewer can use to sign off on
         Meridian. Each question links to the section that answers it.
@@ -688,8 +755,12 @@ function FaqSection() {
       a: "The Portal shows one blade at a time. Meridian aggregates 22 views under one shell, adds live-priced cost intelligence, cross-subscription rollups, drift snapshots, and three intelligence signals — all read-only, all in one place.",
     },
     {
+      q: "Can we evaluate Meridian without giving it any Azure access?",
+      a: "Yes — use File mode. Upload an exported ARM template or a Terraform state file (.tfstate / terraform show -json) and Meridian runs its network topology, subnet reachability, NSG/WAF and IPAM analysis entirely in your browser. Nothing is uploaded and no credentials are needed. Cost and metrics stay disabled because that data isn't in an infrastructure file.",
+    },
+    {
       q: "Is there a hosted SaaS version, or must we self-host?",
-      a: "The public hosted version lives at meridian.cloudcanvas.info. You can also deploy your own private instance in a few minutes — it's a static app plus stateless functions, so it runs on any modern edge or serverless platform.",
+      a: `The public hosted version lives at ${BRAND.host}. You can also deploy your own private instance in a few minutes — it's a static app plus stateless functions, so it runs on any modern edge or serverless platform.`,
     },
     {
       q: "How is authentication rotated?",
@@ -710,7 +781,7 @@ function FaqSection() {
   ];
   return (
     <section className="space-y-5">
-      <SectionTitle id="faq" eyebrow="11 · FAQ" title="Common concerns, answered" />
+      <SectionTitle id="faq" eyebrow="12 · FAQ" title="Common concerns, answered" />
       <dl className="space-y-2">
         {items.map((f) => (
           <details

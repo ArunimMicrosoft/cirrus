@@ -11,10 +11,14 @@ import {
   BarChart3,
   Bomb,
   Boxes,
+  CalendarClock,
+  ClipboardCheck,
   Cloud,
   Coins,
   Database,
   DollarSign,
+  FileBarChart2,
+  FileDiff,
   FileText,
   Gauge,
   GitCompare,
@@ -25,6 +29,7 @@ import {
   LineChart,
   ListChecks,
   Network,
+  PiggyBank,
   Recycle,
   Route,
   ScrollText,
@@ -33,6 +38,8 @@ import {
   Share2,
   Shield,
   ShieldCheck,
+  Radar,
+  Users,
   Trash2,
   TrendingUp,
   Wallet,
@@ -44,6 +51,24 @@ export interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+}
+
+/**
+ * Routes whose data can only come from a live Azure connection (billing +
+ * telemetry) and therefore can't work in File/Offline mode. Used to hide them
+ * from the sidebar and gate them in the app shell when a file is the source.
+ */
+export const LIVE_ONLY_PREFIXES = [
+  "/signals",
+  "/intelligence/cost",
+  "/intelligence/workload",
+  "/cost/",
+  "/monitoring/",
+  "/tools/resource-graph",
+];
+
+export function isLiveOnlyPath(path: string): boolean {
+  return LIVE_ONLY_PREFIXES.some((p) => path === p || path.startsWith(p));
 }
 
 export interface NavGroup {
@@ -92,6 +117,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Cost & Optimization",
     items: [
+      { label: "Savings Summary", href: "/cost/savings", icon: PiggyBank },
       { label: "Azure Advisor (Cost)", href: "/cost/advisor", icon: DollarSign },
       { label: "RI & Quotas", href: "/cost/ri-quotas", icon: Coins },
       { label: "Cost Attribution", href: "/cost/attribution", icon: Wallet },
@@ -103,9 +129,13 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Security & Compliance",
     items: [
+      { label: "Attack Surface", href: "/security/attack-surface", icon: Radar },
       { label: "Well-Architected Review", href: "/security/waf", icon: ShieldCheck },
       { label: "CIS Benchmark Audit", href: "/security/cis", icon: ListChecks },
       { label: "Blast Radius Analyzer", href: "/security/blast-radius", icon: Bomb },
+      { label: "RBAC & Over-Privilege", href: "/security/rbac", icon: Users },
+      { label: "Certificate Expiry", href: "/security/certificates", icon: CalendarClock },
+      { label: "Compliance Crosswalk", href: "/security/compliance", icon: ClipboardCheck },
       { label: "Key Vault Audit", href: "/security/key-vault", icon: KeyRound },
     ],
   },
@@ -121,6 +151,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Tools",
     items: [
       { label: "Cloud Drift Detector", href: "/tools/drift", icon: GitCompare },
+      { label: "Change Review (diff)", href: "/tools/diff", icon: FileDiff },
+      { label: "Executive Reports", href: "/tools/reports", icon: FileBarChart2 },
       { label: "Resource Graph Explorer", href: "/tools/resource-graph", icon: Search },
       { label: "Technical Documentation", href: "/tools/docs", icon: FileText },
     ],

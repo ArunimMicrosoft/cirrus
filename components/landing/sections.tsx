@@ -14,8 +14,11 @@ import { usePathname } from "next/navigation";
 import {
   ArrowRight,
   ArrowUpRight,
+  Boxes,
   CheckCircle2,
   ExternalLink,
+  FileJson,
+  Lock,
   Map as MapIcon,
   Radio,
   Route as RouteIcon,
@@ -32,6 +35,7 @@ import { FAMILY_PRODUCTS, type FamilyProduct } from "@/lib/products";
 import { ALGORITHMS } from "@/lib/algorithms";
 import { Reveal, CountUp } from "@/components/landing/motion";
 import { ReachabilityGraphPanel } from "@/components/landing/ReachabilityShowcase";
+import { DemoButton } from "@/components/auth/DemoButton";
 
 /* -----------------------------------------------------------
  * Nav — appears on every marketing page
@@ -972,6 +976,81 @@ export function Intelligence() {
             </div>
           ))}
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* -----------------------------------------------------------
+ * File mode — analyze from ARM/Terraform without a tenant
+ * -----------------------------------------------------------*/
+
+export function FileModeSection() {
+  const points = [
+    {
+      icon: <Lock className="h-5 w-5" />,
+      title: "Nothing leaves your browser",
+      body: "The file is parsed locally, client-side. No upload, no server, no credentials — a safe way to evaluate Meridian before granting any access.",
+    },
+    {
+      icon: <FileJson className="h-5 w-5" />,
+      title: "ARM & Terraform",
+      body: "Drop an exported ARM template, an az resource list export, or a Terraform state file (.tfstate / terraform show -json).",
+    },
+    {
+      icon: <Boxes className="h-5 w-5" />,
+      title: "The same intelligence",
+      body: "Network topology, subnet reachability, segmentation score, NSG/WAF review, IPAM and inventory — computed straight from your file.",
+    },
+  ];
+  return (
+    <section className="relative border-b border-border/60 bg-muted/10">
+      <div className="mx-auto max-w-6xl px-5 py-20 md:px-8 md:py-24">
+        <Reveal>
+          <div className="max-w-2xl">
+            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              No tenant access required
+            </div>
+            <h2 className="mt-3 font-display text-[32px] leading-tight tracking-tight md:text-[44px]">
+              Not ready to connect? Analyze from a file.
+            </h2>
+            <p className="mt-4 text-[14.5px] leading-relaxed text-muted-foreground">
+              Some teams can&apos;t hand out even read-only access on day one. Upload an
+              exported ARM template or a Terraform state file and Meridian maps your
+              network paths, reachability and security posture — parsed entirely in your
+              browser.
+            </p>
+          </div>
+        </Reveal>
+
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
+          {points.map((p, i) => (
+            <Reveal key={p.title} delay={i * 110}>
+              <div className="cc-panel flex h-full flex-col gap-3 rounded-xl p-5">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  {p.icon}
+                </div>
+                <div className="font-display text-[17px] leading-tight tracking-tight">
+                  {p.title}
+                </div>
+                <p className="text-[13px] leading-relaxed text-muted-foreground">{p.body}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+
+        <div className="mt-8 flex flex-wrap items-center gap-3">
+          <DemoButton label="Explore the live demo — no login" />
+          <span className="text-[12px] text-muted-foreground">
+            Loads a sample estate instantly. No file, no credentials.
+          </span>
+        </div>
+
+        <p className="mt-6 max-w-2xl text-[12px] leading-relaxed text-muted-foreground">
+          Honest by design: cost and metrics need a live connection — that data isn&apos;t in an
+          infrastructure file, so those views stay clearly disabled in file mode.
+        </p>
       </div>
     </section>
   );

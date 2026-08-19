@@ -150,6 +150,7 @@ export const ArmApi = {
   monitorActivityLog: "2015-04-01",
   advisor: "2023-01-01",
   keyvault: "2023-07-01",
+  authorization: "2022-04-01",
   recoveryservices: "2023-08-01",
   recoveryservicesBackup: "2023-06-01",
   reservations: "2022-11-01",

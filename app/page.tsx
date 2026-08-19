@@ -8,6 +8,7 @@ import {
   Hero,
   Pillars,
   MetricsRow,
+  FileModeSection,
   SignalsStrip,
   Algorithms,
   FamilyStrip,
@@ -37,6 +38,7 @@ export default function LandingPage() {
       <Hero />
       <MetricsRow />
       <Pillars />
+      <FileModeSection />
       <SignalsStrip />
       <Algorithms />
       <SignIn />

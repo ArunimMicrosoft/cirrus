@@ -310,8 +310,8 @@ Cloudflare dashboard → **Security → Security rules → Custom rules → Crea
 - **Deploy**.
 
 Because Skip stops rule evaluation for matching requests, the app's own API calls sail through while every blocking rule still applies to the rest of the Internet.
-
-### Step 3 — (Optional) Stop challenging /dashboard
+`
+### Step 3 — (Optional) Stop challenging /dashboard`
 
 If your "Managed Challenge" custom rule lists `/dashboard`, that is a legitimate signed-in app route and will nag real users. Either remove `/dashboard` from that rule's expression, or rely on the Skip rule above for `/api/` and keep the challenge only on truly sensitive paths like `/admin`.
 

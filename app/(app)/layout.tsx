@@ -7,6 +7,10 @@ import { TopBar } from "@/components/layout/TopBar";
 import { AuthGate } from "@/components/layout/AuthGate";
 import { useUiStore } from "@/lib/hooks/use-ui";
 import { cn } from "@/lib/utils";
+import { useIsOffline, useIsDemo, useOfflineEstate } from "@/lib/hooks/use-offline";
+import { isLiveOnlyPath } from "@/lib/nav";
+import { OfflineUnsupported } from "@/components/data/OfflineUnsupported";
+import { OfflineBanner } from "@/components/layout/OfflineBanner";
 
 /**
  * Post-login app shell.
@@ -19,6 +23,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const mobileNavOpen = useUiStore((s) => s.mobileNavOpen);
   const closeMobileNav = useUiStore((s) => s.closeMobileNav);
   const pathname = usePathname();
+  const isOffline = useIsOffline();
+  const isDemo = useIsDemo();
+  const estate = useOfflineEstate();
+  // Demo mode synthesises cost/metrics so every page works; a real uploaded
+  // file can't, so it stays gated.
+  const blocked = isOffline && !isDemo && isLiveOnlyPath(pathname ?? "");
 
   // Close the drawer whenever the route changes so tapping a nav link
   // dismisses it. We use pathname as the effect key rather than wiring a
@@ -75,9 +85,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
+          {isOffline && estate && <OfflineBanner estate={estate} />}
           <main className="flex-1 overflow-y-auto">
             <div className="mx-auto w-full max-w-7xl animate-fade-in space-y-6 px-4 py-5 md:px-6 md:py-6">
-              {children}
+              {blocked ? <OfflineUnsupported /> : children}
             </div>
           </main>
         </div>

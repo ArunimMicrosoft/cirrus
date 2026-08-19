@@ -13,8 +13,11 @@ import { useAuthState, useLogin } from "@/lib/hooks/use-auth";
 import { isValidGuid, cn } from "@/lib/utils";
 import { BRAND } from "@/lib/brand";
 import { DeviceCodeFlow } from "./DeviceCodeFlow";
+import { FileUpload } from "./FileUpload";
+import { DemoButton } from "./DemoButton";
+import { FileJson, ArrowLeft } from "lucide-react";
 
-type Mode = "sp" | "device";
+type Mode = "sp" | "device" | "file";
 
 export function LoginForm() {
   const authState = useAuthState();
@@ -35,11 +38,11 @@ export function LoginForm() {
             <KeyRound className="h-4 w-4" />
           </div>
           <div>
-            <CardTitle>Sign in to {BRAND.name}</CardTitle>
+            <CardTitle>{mode === "file" ? `Analyze a file · ${BRAND.name}` : `Sign in to ${BRAND.name}`}</CardTitle>
             <CardDescription>Reader role · Read-only</CardDescription>
           </div>
         </div>
-        {deviceEnabled && (
+        {deviceEnabled && mode !== "file" && (
           <div
             role="tablist"
             aria-label="Authentication method"
@@ -61,12 +64,41 @@ export function LoginForm() {
         )}
       </CardHeader>
       <CardContent>
-        {mode === "sp" ? <ServicePrincipalForm /> : <DeviceCodeFlow />}
-        <p className="mt-6 text-center text-[11px] text-muted-foreground">
-          Credentials are encrypted (AES-GCM) in an HttpOnly, Secure cookie
-          and never leave this browser session.
-        </p>
-        <p className="mt-1 text-center text-[10px] uppercase tracking-[0.13em] text-muted-foreground/70">
+        {mode === "file" ? (
+          <>
+            <FileUpload />
+            <button
+              type="button"
+              onClick={() => setMode("sp")}
+              className="mt-5 inline-flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to sign in
+            </button>
+          </>
+        ) : (
+          <>
+            {mode === "sp" ? <ServicePrincipalForm /> : <DeviceCodeFlow />}
+
+            <div className="mt-5 space-y-2 border-t pt-4">
+              <button
+                type="button"
+                onClick={() => setMode("file")}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-[12px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-400"
+              >
+                <FileJson className="h-3.5 w-3.5" />
+                No Azure access? Analyze an ARM / Terraform file instead
+              </button>
+              <DemoButton variant="ghost" className="w-full" />
+            </div>
+
+            <p className="mt-5 text-center text-[11px] text-muted-foreground">
+              Credentials are encrypted (AES-GCM) in an HttpOnly, Secure cookie
+              and never leave this browser session.
+            </p>
+          </>
+        )}
+        <p className="mt-3 text-center text-[10px] uppercase tracking-[0.13em] text-muted-foreground/70">
           {BRAND.attribution}
         </p>
       </CardContent>
