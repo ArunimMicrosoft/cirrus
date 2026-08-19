@@ -8,7 +8,7 @@ import {
 } from "@/components/landing/sections";
 import { HandbookTOC, type TocSection } from "@/components/landing/HandbookTOC";
 import { BRAND } from "@/lib/brand";
-import { ALGORITHMS } from "@/lib/algorithms";
+import { getAlgorithms } from "@/lib/algorithms";
 
 /**
  * /handbook — a single long-form document a CISO or security reviewer can
@@ -629,29 +629,35 @@ function SignalsSection() {
       </Callout>
 
       <P>
-        Every signal is a named, peer-reviewed technique — not an LLM or a
-        black-box model. The full set, by discipline:
+        No black box, no LLM guesswork — just proven techniques turned into
+        answers your team can act on. Here is what that looks like in practice:
       </P>
-      <div className="overflow-x-auto rounded-md border">
-        <table className="w-full min-w-[640px] text-[13px]">
-          <thead className="border-b bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2 text-left font-semibold">Algorithm</th>
-              <th className="px-3 py-2 text-left font-semibold">Role</th>
-              <th className="px-3 py-2 text-left font-semibold">Field</th>
-            </tr>
-          </thead>
-          <tbody className="[&_tr]:border-b [&_tr:last-child]:border-0">
-            {Object.values(ALGORITHMS).map((a) => (
-              <tr key={a.name}>
-                <td className="px-3 py-2 font-mono text-[12px] font-medium">{a.name}</td>
-                <td className="px-3 py-2 text-muted-foreground">{a.role}</td>
-                <td className="px-3 py-2 text-muted-foreground">{a.field}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {getAlgorithms([
+          "costForecast",
+          "dijkstra",
+          "distributionSizing",
+          "cusum",
+          "segmentationScore",
+          "riOptimizer",
+        ]).map((a) => (
+          <div key={a.name} className="rounded-md border bg-card/60 p-4">
+            <div className="font-display text-[15px] tracking-tight text-foreground">
+              {a.plainName}
+            </div>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-muted-foreground">
+              {a.why}
+            </p>
+          </div>
+        ))}
       </div>
+      <Callout tone="success">
+        <div className="mb-1 font-semibold text-foreground">Real math you can trust</div>
+        Every signal is a named, established technique that runs right in your
+        browser on data already fetched — nothing leaves your tenant, and the
+        exact method behind each view is named where you use it. No mystery
+        scores, no vendor model, no data pooled across customers.
+      </Callout>
     </section>
   );
 }
