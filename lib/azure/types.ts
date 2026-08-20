@@ -163,6 +163,38 @@ export interface ApplicationGateway {
   };
 }
 
+export interface ExpressRouteCircuit {
+  id: string;
+  name: string;
+  location: string;
+  sku?: { name?: string; tier?: string; family?: string };
+  properties?: {
+    circuitProvisioningState?: string;
+    serviceProviderProvisioningState?: string;
+    provisioningState?: string;
+    allowClassicOperations?: boolean;
+    serviceKey?: string;
+    globalReachEnabled?: boolean;
+    /** Set for ExpressRoute Direct (Gbps ports); classic circuits use serviceProviderProperties. */
+    bandwidthInGbps?: number;
+    serviceProviderProperties?: {
+      serviceProviderName?: string;
+      peeringLocation?: string;
+      bandwidthInMbps?: number;
+    };
+    peerings?: Array<{
+      name?: string;
+      properties?: {
+        peeringType?: string;
+        state?: string;
+        azureASN?: number;
+        peerASN?: number;
+        vlanId?: number;
+      };
+    }>;
+  };
+}
+
 export interface AdvisorRecommendation {
   id: string;
   name: string;

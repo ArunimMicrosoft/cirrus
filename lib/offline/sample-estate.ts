@@ -187,6 +187,52 @@ function generate(): { value: any[]; company: string } {
     properties: { routes: [{ name: "default-via-fw", properties: { addressPrefix: "0.0.0.0/0", nextHopType: "VirtualAppliance", nextHopIpAddress: `10.${b}.0.4` } }] },
   });
 
+  // --- ExpressRoute circuits (hub connectivity) ---
+  const erProviders: [string, string][] = [
+    ["Equinix", "Silicon Valley"],
+    ["Equinix", "Washington DC"],
+    ["Megaport", "Amsterdam"],
+    ["Colt", "London"],
+    ["AT&T", "Dallas"],
+    ["Orange", "Paris"],
+  ];
+  const erBandwidths = [100, 200, 500, 1000, 2000, 5000];
+  const addCircuit = (cname: string, provisioned: boolean) => {
+    const [prov, loc] = pick(erProviders);
+    const bw = pick(erBandwidths);
+    const tier = bw >= 1000 && chance(0.6) ? "Premium" : "Standard";
+    const peering = (peeringType: string) => ({
+      name: peeringType,
+      properties: {
+        peeringType,
+        state: "Enabled",
+        azureASN: 12076,
+        peerASN: rint(64512, 65534),
+        vlanId: rint(100, 999),
+      },
+    });
+    resources.push({
+      id: rid(hubRg, "Microsoft.Network/expressRouteCircuits", cname),
+      name: cname,
+      type: "Microsoft.Network/expressRouteCircuits",
+      location: region,
+      sku: { name: `${tier}_MeteredData`, tier, family: "MeteredData" },
+      properties: {
+        circuitProvisioningState: "Enabled",
+        serviceProviderProvisioningState: provisioned ? "Provisioned" : "NotProvisioned",
+        provisioningState: "Succeeded",
+        allowClassicOperations: false,
+        serviceKey: guid(),
+        serviceProviderProperties: { serviceProviderName: prov, peeringLocation: loc, bandwidthInMbps: bw },
+        peerings: provisioned
+          ? [peering("AzurePrivatePeering"), ...(chance(0.5) ? [peering("MicrosoftPeering")] : [])]
+          : [],
+      },
+    });
+  };
+  addCircuit(`er-${slug}-primary`, true);
+  if (chance(0.5)) addCircuit(`er-${slug}-dr`, false);
+
   // --- VMs + NICs (+ some public IPs) — enables path tracing ---
   const tiers = [
     { sub: "snet-web", p: "web", octet: 1 },
