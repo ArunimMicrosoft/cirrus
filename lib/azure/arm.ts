@@ -145,6 +145,10 @@ export const ArmApi = {
   storage: "2023-05-01",
   web: "2023-12-01",
   sql: "2023-08-01-preview",
+  // Container / data / edge RPs (each versions independently of Microsoft.Network)
+  containerService: "2024-09-01",
+  documentDB: "2024-08-15",
+  frontDoor: "2021-06-01",
   monitor: "2021-05-01",
   monitorMetrics: "2018-01-01",
   monitorActivityLog: "2015-04-01",

@@ -233,6 +233,180 @@ function generate(): { value: any[]; company: string } {
   addCircuit(`er-${slug}-primary`, true);
   if (chance(0.5)) addCircuit(`er-${slug}-dr`, false);
 
+  // --- Virtual network gateways (VPN + optional ExpressRoute) ---
+  const useBasicGw = chance(0.3);
+  const gwSku = useBasicGw ? "Basic" : pick(["VpnGw1", "VpnGw2", "VpnGw2AZ", "VpnGw3"]);
+  resources.push({
+    id: rid(hubRg, "Microsoft.Network/virtualNetworkGateways", `vpngw-${slug}`),
+    name: `vpngw-${slug}`,
+    type: "Microsoft.Network/virtualNetworkGateways",
+    location: region,
+    properties: {
+      gatewayType: "Vpn",
+      vpnType: chance(0.2) ? "PolicyBased" : "RouteBased",
+      vpnGatewayGeneration: useBasicGw ? "None" : pick(["Generation1", "Generation2"]),
+      enableBgp: chance(0.5),
+      activeActive: chance(0.4),
+      sku: { name: gwSku, tier: gwSku },
+      provisioningState: "Succeeded",
+    },
+  });
+  if (chance(0.5)) {
+    resources.push({
+      id: rid(hubRg, "Microsoft.Network/virtualNetworkGateways", `ergw-${slug}`),
+      name: `ergw-${slug}`,
+      type: "Microsoft.Network/virtualNetworkGateways",
+      location: region,
+      properties: {
+        gatewayType: "ExpressRoute",
+        vpnType: "RouteBased",
+        activeActive: false,
+        sku: { name: "ErGw1AZ", tier: "ErGw1AZ" },
+        provisioningState: "Succeeded",
+      },
+    });
+  }
+
+  // --- Load balancers (Standard public + occasional Basic/internal, some empty pools) ---
+  const lbBackend = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `becfg-${i}` }));
+  resources.push({
+    id: rid(prodRg, "Microsoft.Network/loadBalancers", `lb-${slug}-pub`),
+    name: `lb-${slug}-pub`,
+    type: "Microsoft.Network/loadBalancers",
+    location: region,
+    sku: { name: "Standard", tier: "Regional" },
+    properties: {
+      frontendIPConfigurations: [
+        { name: "fe-public", properties: { publicIPAddress: { id: rid(prodRg, "Microsoft.Network/publicIPAddresses", "pip-agw") } } },
+      ],
+      backendAddressPools: [{ name: "bepool", properties: { backendIPConfigurations: lbBackend(rint(1, 3)) } }],
+      loadBalancingRules: [{ name: "https" }, { name: "http" }],
+      probes: [{ name: "hp" }],
+    },
+  });
+  if (chance(0.6)) {
+    const emptyPool = chance(0.5);
+    resources.push({
+      id: rid(prodRg, "Microsoft.Network/loadBalancers", `lb-${slug}-int`),
+      name: `lb-${slug}-int`,
+      type: "Microsoft.Network/loadBalancers",
+      location: region,
+      sku: { name: chance(0.5) ? "Basic" : "Standard" },
+      properties: {
+        frontendIPConfigurations: [
+          { name: "fe-internal", properties: { privateIPAddress: `10.${a}.2.250`, subnet: { id: `${VNET_PROD}/subnets/snet-app` } } },
+        ],
+        backendAddressPools: [{ name: "bepool", properties: { backendIPConfigurations: emptyPool ? [] : lbBackend(2) } }],
+        loadBalancingRules: emptyPool ? [] : [{ name: "app" }],
+      },
+    });
+  }
+
+  // --- Azure Firewall (hub) ---
+  const fwPolicy = chance(0.6);
+  resources.push({
+    id: rid(hubRg, "Microsoft.Network/azureFirewalls", `afw-${slug}`),
+    name: `afw-${slug}`,
+    type: "Microsoft.Network/azureFirewalls",
+    location: region,
+    ...(chance(0.5) ? { zones: ["1", "2", "3"] } : {}),
+    sku: { name: "AZFW_VNet", tier: pick(["Standard", "Standard", "Premium"]) },
+    properties: {
+      threatIntelMode: pick(["Deny", "Deny", "Alert", "Off"]),
+      ...(fwPolicy ? { firewallPolicy: { id: rid(hubRg, "Microsoft.Network/firewallPolicies", `afwp-${slug}`) } } : {}),
+      ipConfigurations: [
+        { name: "fw-ipconfig", properties: { publicIPAddress: { id: rid(hubRg, "Microsoft.Network/publicIPAddresses", "pip-fw") } } },
+      ],
+      provisioningState: "Succeeded",
+    },
+  });
+
+  // --- Cosmos DB ---
+  if (chance(0.85)) {
+    const mongo = chance(0.4);
+    const multiRegion = chance(0.4);
+    const locs = multiRegion
+      ? [
+          { locationName: region, failoverPriority: 0, isZoneRedundant: chance(0.5) },
+          { locationName: pick(REGIONS.filter((r) => r !== region)), failoverPriority: 1, isZoneRedundant: false },
+        ]
+      : [{ locationName: region, failoverPriority: 0, isZoneRedundant: false }];
+    resources.push({
+      id: rid(prodRg, "Microsoft.DocumentDB/databaseAccounts", `cosmos-${slug}`),
+      name: `cosmos-${slug}`,
+      type: "Microsoft.DocumentDB/databaseAccounts",
+      location: region,
+      kind: mongo ? "MongoDB" : "GlobalDocumentDB",
+      properties: {
+        documentEndpoint: `https://cosmos-${slug}.documents.azure.com:443/`,
+        publicNetworkAccess: chance(0.6) ? "Enabled" : "Disabled",
+        enableAutomaticFailover: multiRegion ? chance(0.6) : false,
+        enableMultipleWriteLocations: multiRegion ? chance(0.5) : false,
+        enableFreeTier: chance(0.2),
+        consistencyPolicy: { defaultConsistencyLevel: pick(["Session", "Session", "BoundedStaleness", "Strong", "Eventual"]) },
+        capabilities: mongo ? [{ name: "EnableMongo" }] : [],
+        backupPolicy: { type: "Periodic" },
+        locations: locs,
+        databaseAccountOfferType: "Standard",
+      },
+    });
+  }
+
+  // --- AKS cluster ---
+  if (chance(0.8)) {
+    const priv = chance(0.4);
+    const aad = chance(0.6);
+    const k8s = pick(["1.27.9", "1.28.5", "1.29.4", "1.30.2"]);
+    resources.push({
+      id: rid(prodRg, "Microsoft.ContainerService/managedClusters", `aks-${slug}`),
+      name: `aks-${slug}`,
+      type: "Microsoft.ContainerService/managedClusters",
+      location: region,
+      sku: { name: "Base", tier: chance(0.5) ? "Standard" : "Free" },
+      properties: {
+        kubernetesVersion: k8s,
+        currentKubernetesVersion: k8s,
+        dnsPrefix: `aks-${slug}`,
+        fqdn: `aks-${slug}.hcp.${region}.azmk8s.io`,
+        enableRBAC: true,
+        disableLocalAccounts: aad ? chance(0.6) : false,
+        apiServerAccessProfile: { enablePrivateCluster: priv },
+        aadProfile: aad ? { managed: true, enableAzureRBAC: chance(0.6) } : null,
+        networkProfile: { networkPlugin: pick(["azure", "kubenet"]), loadBalancerSku: "standard" },
+        agentPoolProfiles: [
+          { name: "systempool", count: rint(2, 3), vmSize: "Standard_D4s_v5", mode: "System", osType: "Linux", enableAutoScaling: true, minCount: 2, maxCount: 5 },
+          ...(chance(0.5) ? [{ name: "userpool", count: rint(1, 4), vmSize: "Standard_D8s_v5", mode: "User", osType: "Linux" }] : []),
+        ],
+        provisioningState: "Succeeded",
+      },
+    });
+  }
+
+  // --- Front Door (classic) — some endpoints intentionally miss a WAF policy ---
+  if (chance(0.7)) {
+    const epCount = rint(1, 2);
+    const wafPolicyId = rid(prodRg, "Microsoft.Network/frontdoorWebApplicationFirewallPolicies", `wafp${slug}`);
+    const endpoints = Array.from({ length: epCount }, (_, i) => ({
+      name: `fe-${slug}-${i}`,
+      properties: {
+        hostName: `${slug}${i}.azurefd.net`,
+        ...(chance(0.5) ? { webApplicationFirewallPolicyLink: { id: wafPolicyId } } : {}),
+      },
+    }));
+    resources.push({
+      id: rid(prodRg, "Microsoft.Network/frontdoors", `fd-${slug}`),
+      name: `fd-${slug}`,
+      type: "Microsoft.Network/frontdoors",
+      location: "global",
+      properties: {
+        enabledState: "Enabled",
+        frontendEndpoints: endpoints,
+        backendPools: [{ name: "bepool", properties: { backends: [{}, {}] } }],
+        routingRules: [{ name: "rule1", properties: { enabledState: "Enabled" } }],
+      },
+    });
+  }
+
   // --- VMs + NICs (+ some public IPs) — enables path tracing ---
   const tiers = [
     { sub: "snet-web", p: "web", octet: 1 },

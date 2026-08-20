@@ -195,6 +195,140 @@ export interface ExpressRouteCircuit {
   };
 }
 
+export interface VirtualNetworkGateway {
+  id: string;
+  name: string;
+  location: string;
+  properties?: {
+    gatewayType?: string; // Vpn | ExpressRoute | LocalGateway
+    vpnType?: string; // RouteBased | PolicyBased
+    vpnGatewayGeneration?: string; // None | Generation1 | Generation2
+    enableBgp?: boolean;
+    activeActive?: boolean;
+    sku?: { name?: string; tier?: string; capacity?: number };
+    provisioningState?: string;
+  };
+}
+
+export interface LoadBalancer {
+  id: string;
+  name: string;
+  location: string;
+  sku?: { name?: string; tier?: string };
+  properties?: {
+    provisioningState?: string;
+    frontendIPConfigurations?: Array<{
+      id?: string;
+      name?: string;
+      properties?: {
+        privateIPAddress?: string;
+        publicIPAddress?: { id?: string };
+        subnet?: { id?: string };
+      };
+    }>;
+    backendAddressPools?: Array<{
+      id?: string;
+      name?: string;
+      properties?: { loadBalancerBackendAddresses?: unknown[]; backendIPConfigurations?: unknown[] };
+    }>;
+    loadBalancingRules?: Array<{ name?: string }>;
+    probes?: Array<{ name?: string }>;
+    inboundNatRules?: Array<{ name?: string }>;
+  };
+}
+
+export interface AzureFirewall {
+  id: string;
+  name: string;
+  location: string;
+  zones?: string[];
+  sku?: { name?: string; tier?: string };
+  properties?: {
+    provisioningState?: string;
+    threatIntelMode?: string; // Off | Alert | Deny
+    firewallPolicy?: { id?: string };
+    ipConfigurations?: Array<{ id?: string; name?: string; properties?: { publicIPAddress?: { id?: string } } }>;
+    additionalProperties?: Record<string, string>;
+    networkRuleCollections?: unknown[];
+    applicationRuleCollections?: unknown[];
+  };
+}
+
+export interface CosmosAccount {
+  id: string;
+  name: string;
+  location: string;
+  kind?: string; // GlobalDocumentDB | MongoDB | Parse
+  tags?: Record<string, string> | null;
+  properties?: {
+    provisioningState?: string;
+    documentEndpoint?: string;
+    publicNetworkAccess?: string; // Enabled | Disabled
+    enableAutomaticFailover?: boolean;
+    enableMultipleWriteLocations?: boolean;
+    enableFreeTier?: boolean;
+    isVirtualNetworkFilterEnabled?: boolean;
+    disableKeyBasedMetadataWriteAccess?: boolean;
+    databaseAccountOfferType?: string;
+    consistencyPolicy?: { defaultConsistencyLevel?: string };
+    capabilities?: Array<{ name?: string }>;
+    backupPolicy?: { type?: string };
+    locations?: Array<{ locationName?: string; failoverPriority?: number; isZoneRedundant?: boolean }>;
+  };
+}
+
+export interface ManagedCluster {
+  id: string;
+  name: string;
+  location: string;
+  tags?: Record<string, string> | null;
+  sku?: { name?: string; tier?: string };
+  properties?: {
+    provisioningState?: string;
+    kubernetesVersion?: string;
+    currentKubernetesVersion?: string;
+    dnsPrefix?: string;
+    fqdn?: string;
+    enableRBAC?: boolean;
+    disableLocalAccounts?: boolean;
+    apiServerAccessProfile?: { enablePrivateCluster?: boolean; authorizedIPRanges?: string[] };
+    aadProfile?: { managed?: boolean; enableAzureRBAC?: boolean } | null;
+    networkProfile?: { networkPlugin?: string; networkPolicy?: string; loadBalancerSku?: string };
+    agentPoolProfiles?: Array<{
+      name?: string;
+      count?: number;
+      vmSize?: string;
+      mode?: string;
+      osType?: string;
+      enableAutoScaling?: boolean;
+      minCount?: number;
+      maxCount?: number;
+    }>;
+  };
+}
+
+export interface FrontDoor {
+  id: string;
+  name: string;
+  location?: string;
+  properties?: {
+    provisioningState?: string;
+    resourceState?: string; // Enabled | Disabled
+    enabledState?: string; // Enabled | Disabled
+    frontendEndpoints?: Array<{
+      id?: string;
+      name?: string;
+      properties?: {
+        hostName?: string;
+        webApplicationFirewallPolicyLink?: { id?: string };
+        sessionAffinityEnabledState?: string;
+      };
+    }>;
+    backendPools?: Array<{ id?: string; name?: string; properties?: { backends?: unknown[] } }>;
+    routingRules?: Array<{ id?: string; name?: string; properties?: { enabledState?: string } }>;
+  };
+}
+
 export interface AdvisorRecommendation {
   id: string;
   name: string;
