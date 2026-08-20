@@ -30,6 +30,7 @@ const TYPE_LABELS: Record<string, string> = {
   "microsoft.network/networkinterfaces": "Network interfaces",
   "microsoft.network/publicipaddresses": "Public IP addresses",
   "microsoft.network/applicationgateways": "Application gateways",
+  "microsoft.network/expressroutecircuits": "ExpressRoute circuits",
   "microsoft.compute/virtualmachines": "Virtual machines",
   "microsoft.storage/storageaccounts": "Storage accounts",
   "microsoft.sql/servers": "SQL servers",
