@@ -31,6 +31,9 @@ import type {
   StorageAccount,
   VirtualMachine,
   VirtualNetwork,
+  ManagedCluster,
+  FrontDoor,
+  AzureFirewall,
 } from "@/lib/azure/types";
 
 function lc(s: string | undefined | null): string {
@@ -86,6 +89,9 @@ export default function NetworkIntelligencePage() {
   const appgws = useArmList<ApplicationGateway>("/providers/Microsoft.Network/applicationGateways", ArmApi.network);
   const pubZones = useArmList<DnsZoneArm>("/providers/Microsoft.Network/dnszones", ArmApi.dnsZones);
   const privZones = useArmList<DnsZoneArm>("/providers/Microsoft.Network/privateDnsZones", ArmApi.privateDnsZones);
+  const aks = useArmList<ManagedCluster>("/providers/Microsoft.ContainerService/managedClusters", ArmApi.containerService);
+  const frontDoors = useArmList<FrontDoor>("/providers/Microsoft.Network/frontdoors", ArmApi.frontDoor);
+  const firewalls = useArmList<AzureFirewall>("/providers/Microsoft.Network/azureFirewalls", ArmApi.network);
 
   const anyLoading = [nsgs, nics, pips, vnets, vms, sql, kvs, storage, apps, pes, lbs, appgws].some((q) => q.isLoading);
 
@@ -112,9 +118,12 @@ export default function NetworkIntelligencePage() {
       vnets: vnets.data?.value ?? [],
       sql: sql.data?.value ?? [],
       keyVaults: kvs.data?.value ?? [],
+      aksClusters: aks.data?.value ?? [],
+      frontDoors: frontDoors.data?.value ?? [],
+      firewalls: firewalls.data?.value ?? [],
     });
     return { paths: g.attackPaths(), cutPoints: g.articulationPoints() };
-  }, [anyLoading, vms.data, nics.data, nsgs.data, pips.data, vnets.data, sql.data, kvs.data]);
+  }, [anyLoading, vms.data, nics.data, nsgs.data, pips.data, vnets.data, sql.data, kvs.data, aks.data, frontDoors.data, firewalls.data]);
 
   /* -------- Private-link exposure -------- */
   const exposure = React.useMemo(() => {

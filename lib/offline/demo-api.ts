@@ -275,9 +275,42 @@ export function demoActivityLog(estate: ParsedEstate): any[] {
   }).sort((a, b) => (a.eventTimestamp < b.eventTimestamp ? 1 : -1));
 }
 
+/* -------- Compute / Network quota usages (per region) -------- */
+export function demoQuotas(path: string, estate: ParsedEstate): { value: any[] } {
+  const isNetwork = /microsoft\.network\/locations/i.test(path);
+  const rng = rngFrom(estate.subscriptionName + (isNetwork ? "netq" : "cpuq"));
+  const mk = (name: string, label: string, limit: number, util: number, unit = "Count") => ({
+    unit,
+    currentValue: Math.min(limit, Math.round(limit * util)),
+    limit,
+    name: { value: name, localizedValue: label },
+  });
+  if (isNetwork) {
+    return {
+      value: [
+        mk("VirtualNetworks", "Virtual Networks", 1000, 0.02 + rng() * 0.03),
+        mk("PublicIPAddresses", "Public IP Addresses", 1000, 0.1 + rng() * 0.06),
+        mk("StaticPublicIPAddresses", "Static Public IP Addresses", 1000, 0.08 + rng() * 0.05),
+        mk("NetworkSecurityGroups", "Network Security Groups", 5000, 0.01 + rng() * 0.02),
+        mk("LoadBalancers", "Load Balancers", 1000, 0.02 + rng() * 0.02),
+      ],
+    };
+  }
+  return {
+    value: [
+      mk("cores", "Total Regional vCPUs", 350, 0.82 + rng() * 0.12),
+      mk("standardDSv5Family", "Standard DSv5 Family vCPUs", 100, 0.86 + rng() * 0.1),
+      mk("standardESv5Family", "Standard ESv5 Family vCPUs", 100, 0.5 + rng() * 0.18),
+      mk("standardBSFamily", "Standard B Family vCPUs", 50, 0.3 + rng() * 0.2),
+      mk("virtualMachines", "Virtual Machines", 25000, 0.01 + rng() * 0.01),
+    ],
+  };
+}
+
 /** Route a demo armList call. Returns {value} if handled, else null. */
 export function demoArmList(path: string, params: Record<string, any> | undefined, estate: ParsedEstate): { value: any[] } | null {
   const p = path.toLowerCase();
+  if (p.includes("/locations/") && p.endsWith("/usages")) return demoQuotas(path, estate);
   if (p.includes("backupprotecteditems")) return { value: demoProtectedItems(estate, path) };
   if (p.includes("microsoft.recoveryservices/vaults")) return { value: demoVaults(estate) };
   if (p.includes("microsoft.advisor/recommendations")) return { value: demoAdvisor(estate) };

@@ -14,7 +14,18 @@
 export interface GraphNode {
   id: string;
   label: string;
-  kind: "internet" | "publicIp" | "nic" | "vm" | "subnet" | "vnet" | "nsg" | "sensitive";
+  kind:
+    | "internet"
+    | "publicIp"
+    | "nic"
+    | "vm"
+    | "subnet"
+    | "vnet"
+    | "nsg"
+    | "sensitive"
+    | "apiServer"
+    | "frontDoor"
+    | "firewall";
   /** Higher = more valuable target (SQL, Key Vault, prod tag, etc.). */
   sensitivity?: number;
 }
@@ -178,6 +189,50 @@ export class ResourceGraph {
     ap.delete(INTERNET);
     return [...ap];
   }
+
+  /**
+   * PageRank over the directed dependency graph. A resource scores high when
+   * many (and highly-ranked) resources point at it — i.e. lots of the estate
+   * ultimately leans on it. Standard power-iteration with damping + dangling
+   * mass redistribution, so scores always sum to 1.
+   */
+  pageRank(opts: { damping?: number; iterations?: number } = {}): Map<string, number> {
+    const d = opts.damping ?? 0.85;
+    const iters = opts.iterations ?? 80;
+    const ids = [...this.nodes.keys()];
+    const N = ids.length;
+    if (N === 0) return new Map();
+
+    const outDeg = new Map<string, number>();
+    for (const id of ids) outDeg.set(id, (this.adj.get(id) ?? []).length);
+
+    let rank = new Map<string, number>(ids.map((id) => [id, 1 / N]));
+    for (let it = 0; it < iters; it++) {
+      const next = new Map<string, number>(ids.map((id) => [id, (1 - d) / N]));
+      // Dangling nodes (no out-edges) spread their mass uniformly.
+      let dangling = 0;
+      for (const id of ids) if ((outDeg.get(id) ?? 0) === 0) dangling += rank.get(id)!;
+      const danglingShare = (d * dangling) / N;
+      for (const id of ids) {
+        const edges = this.adj.get(id) ?? [];
+        if (edges.length === 0) continue;
+        const share = (d * rank.get(id)!) / edges.length;
+        for (const e of edges) next.set(e.to, (next.get(e.to) ?? 0) + share);
+      }
+      if (danglingShare) for (const id of ids) next.set(id, next.get(id)! + danglingShare);
+      rank = next;
+    }
+    return rank;
+  }
+
+  /** In-degree (how many resources point AT this node) over the directed graph. */
+  inDegree(): Map<string, number> {
+    const deg = new Map<string, number>(([...this.nodes.keys()]).map((id) => [id, 0]));
+    for (const edges of this.adj.values()) {
+      for (const e of edges) deg.set(e.to, (deg.get(e.to) ?? 0) + 1);
+    }
+    return deg;
+  }
 }
 
 /* ------------------------------------------------------------------
@@ -192,6 +247,9 @@ import type {
   VirtualNetwork,
   SqlServer,
   KeyVault,
+  ManagedCluster,
+  FrontDoor,
+  AzureFirewall,
 } from "@/lib/azure/types";
 import { flattenRules, analyseRules } from "./netgraph";
 
@@ -203,6 +261,12 @@ export interface GraphInputs {
   vnets: VirtualNetwork[];
   sql?: SqlServer[];
   keyVaults?: KeyVault[];
+  /** AKS clusters — a public API server is an internet-reachable control plane. */
+  aksClusters?: ManagedCluster[];
+  /** Front Doors — public entry points; endpoints without WAF are unfiltered. */
+  frontDoors?: FrontDoor[];
+  /** Azure Firewalls — presence means public-IP NICs bypass the perimeter. */
+  firewalls?: AzureFirewall[];
 }
 
 function lc(s: string | undefined | null): string {
@@ -321,6 +385,51 @@ export function buildGraph(input: GraphInputs): ResourceGraph {
     if (isProd) {
       const node = g.nodes.get(lc(vm.id));
       if (node) node.sensitivity = Math.max(node.sensitivity ?? 0, 7);
+    }
+  }
+
+  // --- Feature: enrich with edge/control-plane resources ---------------------
+
+  // Public AKS API server: an internet-reachable Kubernetes control plane is a
+  // high-value target and a direct one-hop path from the Internet.
+  for (const c of input.aksClusters ?? []) {
+    const apiId = `${lc(c.id)}/apiserver`;
+    const priv = Boolean(c.properties?.apiServerAccessProfile?.enablePrivateCluster);
+    g.addNode({ id: apiId, label: `AKS API: ${c.name}`, kind: "apiServer", sensitivity: 8 });
+    if (!priv) {
+      g.addEdge({ from: INTERNET, to: apiId, weight: 1, reason: "public AKS API server" });
+    }
+  }
+
+  // Front Door: a public edge entry. Endpoints without a WAF policy are an
+  // unfiltered path in; with WAF the hop is more expensive but still present.
+  for (const fd of input.frontDoors ?? []) {
+    const fdId = lc(fd.id);
+    const eps = fd.properties?.frontendEndpoints ?? [];
+    const anyNoWaf = eps.length > 0 && eps.some((e) => !e.properties?.webApplicationFirewallPolicyLink?.id);
+    g.addNode({ id: fdId, label: `Front Door: ${fd.name}`, kind: "frontDoor", sensitivity: anyNoWaf ? 3 : 0 });
+    g.addEdge({
+      from: INTERNET,
+      to: fdId,
+      weight: anyNoWaf ? 1 : 3,
+      reason: anyNoWaf ? "public Front Door endpoint without WAF" : "public Front Door endpoint (WAF)",
+    });
+  }
+
+  // Azure Firewall present in the estate: any NIC that carries its own public
+  // IP bypasses the perimeter. Mark those internet->pip hops as cheaper so the
+  // attack path reflects the un-inspected route around the firewall.
+  const hasFirewall = (input.firewalls ?? []).length > 0;
+  if (hasFirewall) {
+    for (const [from, edges] of g.adj) {
+      if (from !== INTERNET) continue;
+      for (const e of edges) {
+        const target = g.nodes.get(e.to);
+        if (target?.kind === "publicIp") {
+          e.weight = Math.min(e.weight, 1);
+          e.reason = "public IP bypasses Azure Firewall";
+        }
+      }
     }
   }
 

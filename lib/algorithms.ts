@@ -92,6 +92,14 @@ export const ALGORITHMS = {
     why: "Highlights the load-bearing parts of your architecture that most deserve redundancy or a backup plan.",
     field: "Graph theory",
   },
+  pageRank: {
+    name: "PageRank (power iteration)",
+    plainName: "Resource criticality",
+    role: "Eigenvector centrality over the resource dependency graph",
+    what: "Ranks every resource by how much the rest of the estate ultimately leans on it — the same idea search engines use to rank pages, applied to your infrastructure's dependency links.",
+    why: "Tells you which handful of resources carry the most weight, so you protect and add redundancy to the ones whose failure would ripple the furthest — not just the noisy ones.",
+    field: "Graph theory",
+  },
   kMeans: {
     name: "k-means++",
     plainName: "Workload grouping",

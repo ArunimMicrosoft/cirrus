@@ -12,9 +12,10 @@
  */
 
 const DB_NAME = "aiu-drift";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = "snapshots";
 const BASELINE_STORE = "baselines";
+const QUOTA_STORE = "quotas";
 
 function isBrowser(): boolean {
   return typeof indexedDB !== "undefined" && typeof window !== "undefined";
@@ -34,6 +35,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(BASELINE_STORE)) {
         const store = db.createObjectStore(BASELINE_STORE, { keyPath: "key" });
+        store.createIndex("subscriptionId", "subscriptionId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(QUOTA_STORE)) {
+        const store = db.createObjectStore(QUOTA_STORE, { keyPath: "key" });
         store.createIndex("subscriptionId", "subscriptionId", { unique: false });
       }
     };
@@ -209,6 +214,83 @@ export async function listBaselines(
     req.onsuccess = () => {
       const rows = (req.result as StoredBaseline[]).sort((a, b) =>
         a.date < b.date ? 1 : -1,
+      );
+      done.then(() => resolve(rows)).catch(reject);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/* ------------------------------------------------------------------
+ * Quota usage history — one row per (subscription, date). Feeds the
+ * Theil-Sen exhaustion forecast on the Quota Forecast page. Same
+ * per-day-idempotent + auto-prune pattern as baselines.
+ * ------------------------------------------------------------------*/
+
+export interface QuotaSample {
+  /** ARM usage name, e.g. "cores" or "PublicIPAddresses". */
+  name: string;
+  /** Friendly label. */
+  label: string;
+  region: string;
+  current: number;
+  limit: number;
+}
+
+export interface StoredQuotaDay {
+  key: string;
+  subscriptionId: string;
+  date: string; // YYYY-MM-DD
+  timestamp: string;
+  samples: QuotaSample[];
+}
+
+const QUOTA_RETENTION_DAYS = 90;
+
+/** Write today's quota snapshot for a subscription (idempotent per day). */
+export async function putQuotaSnapshot(
+  subscriptionId: string,
+  samples: QuotaSample[],
+): Promise<void> {
+  if (samples.length === 0) return;
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10);
+  const { store, done } = await tx("readwrite", QUOTA_STORE);
+  const record: StoredQuotaDay = {
+    key: `${subscriptionId}::${date}`,
+    subscriptionId,
+    date,
+    timestamp: now.toISOString(),
+    samples,
+  };
+  store.put(record);
+
+  const cutoff = new Date(now.getTime() - QUOTA_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+  const idx = store.index("subscriptionId");
+  const req = idx.openCursor(IDBKeyRange.only(subscriptionId));
+  req.onsuccess = () => {
+    const cursor = req.result;
+    if (!cursor) return;
+    const rec = cursor.value as StoredQuotaDay;
+    if (rec.date < cutoff) cursor.delete();
+    cursor.continue();
+  };
+  await done;
+}
+
+/** Load every stored quota day for a subscription, oldest first (for series). */
+export async function listQuotaSnapshots(
+  subscriptionId: string,
+): Promise<StoredQuotaDay[]> {
+  const { store, done } = await tx("readonly", QUOTA_STORE);
+  return new Promise<StoredQuotaDay[]>((resolve, reject) => {
+    const idx = store.index("subscriptionId");
+    const req = idx.getAll(subscriptionId);
+    req.onsuccess = () => {
+      const rows = (req.result as StoredQuotaDay[]).sort((a, b) =>
+        a.date < b.date ? -1 : 1,
       );
       done.then(() => resolve(rows)).catch(reject);
     };

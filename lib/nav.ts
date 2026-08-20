@@ -68,6 +68,7 @@ export interface NavItem {
 export const LIVE_ONLY_PREFIXES = [
   "/signals",
   "/intelligence/cost",
+  "/intelligence/quotas",
   "/intelligence/workload",
   "/cost/",
   "/monitoring/",
@@ -98,6 +99,9 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Network Intelligence", href: "/intelligence/network", icon: Route },
       { label: "IP Address Management", href: "/intelligence/ipam", icon: Network },
       { label: "Network Topology", href: "/intelligence/topology", icon: Share2 },
+      { label: "Resource Criticality", href: "/intelligence/criticality", icon: Share2 },
+      { label: "Reliability Scorecard", href: "/intelligence/reliability", icon: ShieldCheck },
+      { label: "Quota Forecast", href: "/intelligence/quotas", icon: Gauge },
       { label: "Workload Intelligence", href: "/intelligence/workload", icon: Boxes },
       { label: "Governance Intelligence", href: "/intelligence/governance", icon: ScrollText },
     ],
