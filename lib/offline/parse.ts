@@ -415,6 +415,243 @@ function parseTfstate(root: any): Record<string, unknown[]> {
     properties: { provisioningState: "Succeeded" },
   }));
 
+  // --- ExpressRoute circuits (+ standalone peerings) ---
+  const erPeerings = new Map<string, any[]>();
+  for (const a of get("azurerm_express_route_circuit_peering")) {
+    const key = lc(`${a.resource_group_name}/${a.express_route_circuit_name}`);
+    if (!erPeerings.has(key)) erPeerings.set(key, []);
+    erPeerings.get(key)!.push({
+      name: a.peering_type,
+      properties: {
+        peeringType: a.peering_type,
+        state: "Enabled",
+        azureASN: num(a.azure_asn) || undefined,
+        peerASN: num(a.peer_asn) || undefined,
+        vlanId: num(a.vlan_id) || undefined,
+      },
+    });
+  }
+  const expressRoutes = get("azurerm_express_route_circuit").map((a) => {
+    const skuBlock = asArray(a.sku)[0] ?? {};
+    const tier = skuBlock.tier ?? "Standard";
+    const family = skuBlock.family ?? "MeteredData";
+    return {
+      id: a.id || subId(a.resource_group_name, "Microsoft.Network/expressRouteCircuits", a.name),
+      name: a.name,
+      type: "Microsoft.Network/expressRouteCircuits",
+      location: a.location,
+      sku: { name: `${tier}_${family}`, tier, family },
+      properties: {
+        circuitProvisioningState: "Enabled",
+        serviceProviderProvisioningState: a.service_provider_provisioning_state || "Provisioned",
+        serviceProviderProperties: {
+          serviceProviderName: a.service_provider_name,
+          peeringLocation: a.peering_location,
+          bandwidthInMbps: num(a.bandwidth_in_mbps),
+        },
+        peerings: erPeerings.get(lc(`${a.resource_group_name}/${a.name}`)) ?? [],
+      },
+    };
+  });
+
+  // --- Virtual network gateways ---
+  const vnetGateways = get("azurerm_virtual_network_gateway").map((a) => ({
+    id: a.id || subId(a.resource_group_name, "Microsoft.Network/virtualNetworkGateways", a.name),
+    name: a.name,
+    type: "Microsoft.Network/virtualNetworkGateways",
+    location: a.location,
+    properties: {
+      gatewayType: a.type,
+      vpnType: a.vpn_type,
+      vpnGatewayGeneration: a.generation,
+      enableBgp: Boolean(a.enable_bgp),
+      activeActive: Boolean(a.active_active),
+      sku: { name: a.sku, tier: a.sku },
+      provisioningState: "Succeeded",
+    },
+  }));
+
+  // --- Load balancers (+ standalone backend pools, pool addresses, rules) ---
+  const poolAddrCount = new Map<string, number>();
+  for (const a of get("azurerm_lb_backend_address_pool_address")) {
+    if (a.backend_address_pool_id) {
+      const k = lc(a.backend_address_pool_id);
+      poolAddrCount.set(k, (poolAddrCount.get(k) ?? 0) + 1);
+    }
+  }
+  const lbPools = new Map<string, any[]>();
+  for (const a of get("azurerm_lb_backend_address_pool")) {
+    if (!a.loadbalancer_id) continue;
+    const lbKey = lc(a.loadbalancer_id);
+    if (!lbPools.has(lbKey)) lbPools.set(lbKey, []);
+    const addrs = poolAddrCount.get(lc(a.id || "")) ?? 0;
+    lbPools.get(lbKey)!.push({
+      name: a.name,
+      properties: { loadBalancerBackendAddresses: Array.from({ length: addrs }, () => ({})) },
+    });
+  }
+  const lbRules = new Map<string, any[]>();
+  for (const a of get("azurerm_lb_rule")) {
+    if (!a.loadbalancer_id) continue;
+    const lbKey = lc(a.loadbalancer_id);
+    if (!lbRules.has(lbKey)) lbRules.set(lbKey, []);
+    lbRules.get(lbKey)!.push({ name: a.name });
+  }
+  const loadBalancers = get("azurerm_lb").map((a) => {
+    const lbId = a.id || subId(a.resource_group_name, "Microsoft.Network/loadBalancers", a.name);
+    const fronts = asArray(a.frontend_ip_configuration).map((f: any) => ({
+      name: f.name,
+      properties: {
+        ...(f.public_ip_address_id ? { publicIPAddress: { id: f.public_ip_address_id } } : {}),
+        ...(f.subnet_id ? { subnet: { id: f.subnet_id } } : {}),
+        ...(f.private_ip_address ? { privateIPAddress: f.private_ip_address } : {}),
+      },
+    }));
+    return {
+      id: lbId,
+      name: a.name,
+      type: "Microsoft.Network/loadBalancers",
+      location: a.location,
+      sku: { name: a.sku || "Basic", tier: a.sku_tier },
+      properties: {
+        frontendIPConfigurations: fronts,
+        backendAddressPools: lbPools.get(lc(lbId)) ?? [],
+        loadBalancingRules: lbRules.get(lc(lbId)) ?? [],
+      },
+    };
+  });
+
+  // --- Azure firewalls ---
+  const firewalls = get("azurerm_firewall").map((a) => ({
+    id: a.id || subId(a.resource_group_name, "Microsoft.Network/azureFirewalls", a.name),
+    name: a.name,
+    type: "Microsoft.Network/azureFirewalls",
+    location: a.location,
+    ...(asArray(a.zones).length ? { zones: a.zones } : {}),
+    sku: { name: a.sku_name, tier: a.sku_tier },
+    properties: {
+      threatIntelMode: a.threat_intel_mode,
+      ...(a.firewall_policy_id ? { firewallPolicy: { id: a.firewall_policy_id } } : {}),
+      ipConfigurations: asArray(a.ip_configuration).map((ic: any) => ({
+        name: ic.name,
+        properties: { ...(ic.public_ip_address_id ? { publicIPAddress: { id: ic.public_ip_address_id } } : {}) },
+      })),
+      provisioningState: "Succeeded",
+    },
+  }));
+
+  // --- Cosmos DB accounts ---
+  const cosmos = get("azurerm_cosmosdb_account").map((a) => ({
+    id: a.id || subId(a.resource_group_name, "Microsoft.DocumentDB/databaseAccounts", a.name),
+    name: a.name,
+    type: "Microsoft.DocumentDB/databaseAccounts",
+    location: a.location,
+    kind: a.kind || "GlobalDocumentDB",
+    properties: {
+      documentEndpoint: a.endpoint,
+      publicNetworkAccess: (a.public_network_access_enabled ?? true) ? "Enabled" : "Disabled",
+      enableAutomaticFailover: a.automatic_failover_enabled ?? a.enable_automatic_failover ?? false,
+      enableMultipleWriteLocations: a.multiple_write_locations_enabled ?? a.enable_multiple_write_locations ?? false,
+      enableFreeTier: a.free_tier_enabled ?? a.enable_free_tier ?? false,
+      consistencyPolicy: { defaultConsistencyLevel: asArray(a.consistency_policy)[0]?.consistency_level },
+      capabilities: asArray(a.capabilities).map((c: any) => ({ name: c.name })),
+      locations: asArray(a.geo_location).map((g: any) => ({
+        locationName: g.location,
+        failoverPriority: num(g.failover_priority),
+        isZoneRedundant: Boolean(g.zone_redundant),
+      })),
+      databaseAccountOfferType: a.offer_type || "Standard",
+    },
+    tags: a.tags,
+  }));
+
+  // --- AKS clusters (+ standalone node pools) ---
+  const aksExtraPools = new Map<string, any[]>();
+  for (const a of get("azurerm_kubernetes_cluster_node_pool")) {
+    if (!a.kubernetes_cluster_id) continue;
+    const k = lc(a.kubernetes_cluster_id);
+    if (!aksExtraPools.has(k)) aksExtraPools.set(k, []);
+    aksExtraPools.get(k)!.push({
+      name: a.name,
+      count: num(a.node_count),
+      vmSize: a.vm_size,
+      mode: a.mode || "User",
+      osType: a.os_type || "Linux",
+      enableAutoScaling: Boolean(a.enable_auto_scaling ?? a.auto_scaling_enabled),
+      minCount: num(a.min_count),
+      maxCount: num(a.max_count),
+    });
+  }
+  const aks = get("azurerm_kubernetes_cluster").map((a) => {
+    const clusterId = a.id || subId(a.resource_group_name, "Microsoft.ContainerService/managedClusters", a.name);
+    const dnp = asArray(a.default_node_pool)[0] ?? {};
+    const np = asArray(a.network_profile)[0] ?? {};
+    const aad = asArray(a.azure_active_directory_role_based_access_control)[0];
+    const pools = [
+      {
+        name: dnp.name || "default",
+        count: num(dnp.node_count),
+        vmSize: dnp.vm_size,
+        mode: "System",
+        osType: "Linux",
+        enableAutoScaling: Boolean(dnp.enable_auto_scaling ?? dnp.auto_scaling_enabled),
+        minCount: num(dnp.min_count),
+        maxCount: num(dnp.max_count),
+      },
+      ...(aksExtraPools.get(lc(clusterId)) ?? []),
+    ];
+    return {
+      id: clusterId,
+      name: a.name,
+      type: "Microsoft.ContainerService/managedClusters",
+      location: a.location,
+      sku: { tier: a.sku_tier || "Free" },
+      properties: {
+        kubernetesVersion: a.kubernetes_version,
+        currentKubernetesVersion: a.current_kubernetes_version || a.kubernetes_version,
+        dnsPrefix: a.dns_prefix,
+        fqdn: a.fqdn,
+        enableRBAC: a.role_based_access_control_enabled ?? true,
+        disableLocalAccounts: Boolean(a.local_account_disabled),
+        apiServerAccessProfile: { enablePrivateCluster: Boolean(a.private_cluster_enabled) },
+        aadProfile: aad ? { managed: true, enableAzureRBAC: Boolean(aad.azure_rbac_enabled) } : null,
+        networkProfile: {
+          networkPlugin: np.network_plugin,
+          networkPolicy: np.network_policy,
+          loadBalancerSku: np.load_balancer_sku,
+        },
+        agentPoolProfiles: pools,
+        provisioningState: "Succeeded",
+      },
+      tags: a.tags,
+    };
+  });
+
+  // --- Front Door (classic) ---
+  const frontDoors = get("azurerm_frontdoor").map((a) => ({
+    id: a.id || subId(a.resource_group_name, "Microsoft.Network/frontdoors", a.name),
+    name: a.name,
+    type: "Microsoft.Network/frontdoors",
+    location: "global",
+    properties: {
+      enabledState: "Enabled",
+      frontendEndpoints: asArray(a.frontend_endpoint).map((e: any) => ({
+        name: e.name,
+        properties: {
+          hostName: e.host_name,
+          ...(e.web_application_firewall_policy_link_id
+            ? { webApplicationFirewallPolicyLink: { id: e.web_application_firewall_policy_link_id } }
+            : {}),
+        },
+      })),
+      backendPools: asArray(a.backend_pool).map((bp: any) => ({ name: bp.name, properties: { backends: asArray(bp.backend) } })),
+      routingRules: asArray(a.routing_rule).map((r: any) => ({
+        name: r.name,
+        properties: { enabledState: r.enabled === false ? "Disabled" : "Enabled" },
+      })),
+    },
+  }));
+
   return buildByType({
     "microsoft.network/virtualnetworks": vnets,
     "microsoft.network/networksecuritygroups": [...nsgByKey.values()],
@@ -422,9 +659,16 @@ function parseTfstate(root: any): Record<string, unknown[]> {
     "microsoft.network/networkinterfaces": nics,
     "microsoft.network/publicipaddresses": pips,
     "microsoft.network/applicationgateways": appgws,
+    "microsoft.network/expressroutecircuits": expressRoutes,
+    "microsoft.network/loadbalancers": loadBalancers,
+    "microsoft.network/virtualnetworkgateways": vnetGateways,
+    "microsoft.network/azurefirewalls": firewalls,
+    "microsoft.network/frontdoors": frontDoors,
     "microsoft.compute/virtualmachines": vms,
     "microsoft.storage/storageaccounts": storage,
     "microsoft.sql/servers": sql,
+    "microsoft.documentdb/databaseaccounts": cosmos,
+    "microsoft.containerservice/managedclusters": aks,
     "microsoft.keyvault/vaults": vaults,
     "microsoft.web/sites": webApps,
     resourcegroups: resourceGroups,
