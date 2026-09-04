@@ -51,6 +51,7 @@ import {
   TrendingUp,
   Wallet,
   Waypoints,
+  Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -99,6 +100,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Network Intelligence", href: "/intelligence/network", icon: Route },
       { label: "IP Address Management", href: "/intelligence/ipam", icon: Network },
       { label: "Network Topology", href: "/intelligence/topology", icon: Share2 },
+      { label: "Resource Map", href: "/intelligence/visualizer", icon: Workflow },
       { label: "Resource Criticality", href: "/intelligence/criticality", icon: Share2 },
       { label: "Reliability Scorecard", href: "/intelligence/reliability", icon: ShieldCheck },
       { label: "Quota Forecast", href: "/intelligence/quotas", icon: Gauge },
@@ -155,12 +157,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Certificate Expiry", href: "/security/certificates", icon: CalendarClock },
       { label: "Compliance Crosswalk", href: "/security/compliance", icon: ClipboardCheck },
       { label: "Key Vault Audit", href: "/security/key-vault", icon: KeyRound },
+      { label: "Key Vault Objects", href: "/security/key-vault-objects", icon: KeyRound },
     ],
   },
   {
     label: "Monitoring",
     items: [
       { label: "VM Backups", href: "/monitoring/backups", icon: Recycle },
+      { label: "Alert Rules", href: "/monitoring/alert-rules", icon: AlertTriangle },
       { label: "Azure Monitor Alerts", href: "/monitoring/alerts", icon: AlertTriangle },
       { label: "Azure Monitor Metrics", href: "/monitoring/metrics", icon: LineChart },
     ],

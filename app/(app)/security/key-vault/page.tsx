@@ -201,12 +201,19 @@ export default function KeyVaultAuditPage() {
       </div>
 
       <Alert>
-        <AlertTitle>Data plane note</AlertTitle>
+        <AlertTitle>Looking for keys, secrets &amp; certificate expiry?</AlertTitle>
         <AlertDescription>
-          Certificate / secret expiry lists require Key Vault{" "}
-          <em>data plane</em> permissions on each vault. This app uses
-          management plane only (Reader role), so we surface configuration
-          hygiene here — certificate rotation lives in the Portal for now.
+          This page audits vault <em>configuration</em> (management plane). For
+          the individual keys, secrets, and certificates inside each vault —
+          with commission and expiry dates and days-left — see{" "}
+          <a
+            href="/security/key-vault-objects"
+            className="font-medium text-primary underline underline-offset-2"
+          >
+            Key Vault Objects
+          </a>
+          . That view reads the Key Vault <em>data plane</em>, which needs a
+          data-plane role or access policy on each vault beyond Reader.
         </AlertDescription>
       </Alert>
 

@@ -127,6 +127,218 @@ const TEMPLATES: Template[] = [
 | where todatetime(properties.timeCreated) < ago(30d)
 | project name, resourceGroup, ageDays = datetime_diff('day', now(), todatetime(properties.timeCreated)), sizeGB = properties.diskSizeGB`,
   },
+
+  // ------------------------------------------------------------------
+  // Investigation / RCA — deep per-resource property extraction. These go
+  // "all the way down" into the resource JSON to surface the state, health,
+  // and config fields you actually need when root-causing an incident.
+  // ------------------------------------------------------------------
+  {
+    category: "Investigation / RCA",
+    name: "VM — full instance & config deep-dive",
+    kql: `Resources
+| where type =~ 'Microsoft.Compute/virtualMachines'
+| extend iv = properties.extended.instanceView
+| project name, resourceGroup, location,
+    powerState = tostring(iv.powerState.displayStatus),
+    provisioningState = tostring(properties.provisioningState),
+    vmSize = tostring(properties.hardwareProfile.vmSize),
+    osType = tostring(properties.storageProfile.osDisk.osType),
+    imageOffer = tostring(properties.storageProfile.imageReference.offer),
+    imageSku = tostring(properties.storageProfile.imageReference.sku),
+    zones = tostring(zones),
+    availabilitySet = tostring(properties.availabilitySet.id),
+    licenseType = tostring(properties.licenseType),
+    nicCount = array_length(properties.networkProfile.networkInterfaces),
+    dataDiskCount = array_length(properties.storageProfile.dataDisks),
+    bootDiagnostics = tostring(properties.diagnosticsProfile.bootDiagnostics.enabled),
+    vmId = tostring(properties.vmId)
+| order by powerState asc, name asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "App Service — runtime state & networking deep-dive",
+    kql: `Resources
+| where type =~ 'Microsoft.Web/sites'
+| project name, resourceGroup, location, kind,
+    state = tostring(properties.state),
+    enabled = tostring(properties.enabled),
+    availabilityState = tostring(properties.availabilityState),
+    httpsOnly = tostring(properties.httpsOnly),
+    clientCertEnabled = tostring(properties.clientCertEnabled),
+    defaultHostName = tostring(properties.defaultHostName),
+    appServicePlan = tostring(properties.serverFarmId),
+    vnetSubnet = tostring(properties.virtualNetworkSubnetId),
+    hostNameCount = array_length(properties.hostNames),
+    outboundIps = tostring(properties.outboundIpAddresses),
+    lastModified = tostring(properties.lastModifiedTimeUtc)
+| order by state asc, name asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "Application Gateway — health & config deep-dive",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/applicationGateways'
+| project name, resourceGroup, location,
+    operationalState = tostring(properties.operationalState),
+    provisioningState = tostring(properties.provisioningState),
+    tier = tostring(properties.sku.tier),
+    skuName = tostring(properties.sku.name),
+    capacity = toint(properties.sku.capacity),
+    autoscaleMin = toint(properties.autoscaleConfiguration.minCapacity),
+    autoscaleMax = toint(properties.autoscaleConfiguration.maxCapacity),
+    wafEnabled = tostring(properties.webApplicationFirewallConfiguration.enabled),
+    wafMode = tostring(properties.webApplicationFirewallConfiguration.firewallMode),
+    httpListeners = array_length(properties.httpListeners),
+    backendPools = array_length(properties.backendAddressPools),
+    backendSettings = array_length(properties.backendHttpSettingsCollection),
+    requestRoutingRules = array_length(properties.requestRoutingRules),
+    frontendIps = array_length(properties.frontendIPConfigurations)
+| order by operationalState asc, name asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "Application Gateway — backend pool targets (expanded)",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/applicationGateways'
+| mv-expand pool = properties.backendAddressPools
+| extend addresses = pool.properties.backendAddresses
+| project appGateway = name, resourceGroup, location,
+    backendPool = tostring(pool.name),
+    targetCount = array_length(addresses),
+    targets = tostring(addresses),
+    linkedRuleCount = array_length(pool.properties.requestRoutingRules)
+| order by appGateway asc, backendPool asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "VNet — address space, peering & DNS deep-dive",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/virtualNetworks'
+| project name, resourceGroup, location,
+    addressPrefixes = tostring(properties.addressSpace.addressPrefixes),
+    subnetCount = array_length(properties.subnets),
+    peeringCount = array_length(properties.virtualNetworkPeerings),
+    dnsServers = tostring(properties.dhcpOptions.dnsServers),
+    ddosProtection = tostring(properties.enableDdosProtection),
+    provisioningState = tostring(properties.provisioningState)
+| order by name asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "VNet peering — connection state (expanded)",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/virtualNetworks'
+| mv-expand peering = properties.virtualNetworkPeerings
+| project vnet = name, resourceGroup,
+    peeringName = tostring(peering.name),
+    peeringState = tostring(peering.properties.peeringState),
+    remoteVnet = tostring(peering.properties.remoteVirtualNetwork.id),
+    remoteAddressSpace = tostring(peering.properties.remoteAddressSpace.addressPrefixes),
+    allowForwardedTraffic = tostring(peering.properties.allowForwardedTraffic),
+    allowGatewayTransit = tostring(peering.properties.allowGatewayTransit),
+    useRemoteGateways = tostring(peering.properties.useRemoteGateways),
+    provisioningState = tostring(peering.properties.provisioningState)
+| order by peeringState asc, vnet asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "Subnet — prefix, NSG, routes & bindings (expanded)",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/virtualNetworks'
+| mv-expand subnet = properties.subnets
+| project vnet = name, resourceGroup, location,
+    subnetName = tostring(subnet.name),
+    addressPrefix = tostring(subnet.properties.addressPrefix),
+    nsg = tostring(subnet.properties.networkSecurityGroup.id),
+    routeTable = tostring(subnet.properties.routeTable.id),
+    natGateway = tostring(subnet.properties.natGateway.id),
+    ipConfigurations = array_length(subnet.properties.ipConfigurations),
+    privateEndpoints = array_length(subnet.properties.privateEndpoints),
+    delegations = tostring(subnet.properties.delegations),
+    serviceEndpoints = tostring(subnet.properties.serviceEndpoints)
+| order by vnet asc, subnetName asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "Traffic Manager — profile & monitor config",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/trafficmanagerprofiles'
+| project name, resourceGroup,
+    profileStatus = tostring(properties.profileStatus),
+    routingMethod = tostring(properties.trafficRoutingMethod),
+    fqdn = tostring(properties.dnsConfig.fqdn),
+    ttl = toint(properties.dnsConfig.ttl),
+    monitorProtocol = tostring(properties.monitorConfig.protocol),
+    monitorPort = toint(properties.monitorConfig.port),
+    monitorPath = tostring(properties.monitorConfig.path),
+    intervalSeconds = toint(properties.monitorConfig.intervalInSeconds),
+    timeoutSeconds = toint(properties.monitorConfig.timeoutInSeconds),
+    toleratedFailures = toint(properties.monitorConfig.toleratedNumberOfFailures),
+    endpointCount = array_length(properties.endpoints)
+| order by profileStatus asc, name asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "Traffic Manager — endpoint health (expanded)",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/trafficmanagerprofiles'
+| mv-expand endpoint = properties.endpoints
+| project profile = name, resourceGroup,
+    endpointName = tostring(endpoint.name),
+    endpointStatus = tostring(endpoint.properties.endpointStatus),
+    monitorStatus = tostring(endpoint.properties.endpointMonitorStatus),
+    target = tostring(endpoint.properties.target),
+    targetResourceId = tostring(endpoint.properties.targetResourceId),
+    weight = toint(endpoint.properties.weight),
+    priority = toint(endpoint.properties.priority),
+    endpointLocation = tostring(endpoint.properties.endpointLocation)
+| order by profile asc, priority asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "Load Balancer — rules, pools & probes",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/loadBalancers'
+| project name, resourceGroup, location,
+    skuName = tostring(sku.name),
+    skuTier = tostring(sku.tier),
+    provisioningState = tostring(properties.provisioningState),
+    frontendIps = array_length(properties.frontendIPConfigurations),
+    backendPools = array_length(properties.backendAddressPools),
+    loadBalancingRules = array_length(properties.loadBalancingRules),
+    probes = array_length(properties.probes),
+    inboundNatRules = array_length(properties.inboundNatRules),
+    outboundRules = array_length(properties.outboundRules)
+| order by name asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "Network Interface — IP config, VM & subnet binding (expanded)",
+    kql: `Resources
+| where type =~ 'Microsoft.Network/networkInterfaces'
+| mv-expand ipconfig = properties.ipConfigurations
+| project nic = name, resourceGroup, location,
+    privateIp = tostring(ipconfig.properties.privateIPAddress),
+    allocation = tostring(ipconfig.properties.privateIPAllocationMethod),
+    subnetId = tostring(ipconfig.properties.subnet.id),
+    publicIpId = tostring(ipconfig.properties.publicIPAddress.id),
+    attachedVm = tostring(properties.virtualMachine.id),
+    nsgId = tostring(properties.networkSecurityGroup.id),
+    ipForwarding = tostring(properties.enableIPForwarding),
+    acceleratedNetworking = tostring(properties.enableAcceleratedNetworking)
+| order by nic asc`,
+  },
+  {
+    category: "Investigation / RCA",
+    name: "Estate — resources not in 'Succeeded' state",
+    kql: `Resources
+| where isnotempty(properties.provisioningState)
+    and tostring(properties.provisioningState) !~ 'Succeeded'
+| project name, type, resourceGroup, location,
+    provisioningState = tostring(properties.provisioningState)
+| order by type asc, name asc`,
+  },
 ];
 
 interface GraphResponse {

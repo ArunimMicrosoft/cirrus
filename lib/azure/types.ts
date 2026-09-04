@@ -361,6 +361,17 @@ export interface KeyVault {
   };
 }
 
+/**
+ * Key Vault data-plane object metadata (keys / secrets / certificates).
+ * Defined in ./keyvault.ts (shared with the backend proxy) and re-exported
+ * here so UI code can import all Azure types from one place.
+ */
+export type {
+  KeyVaultObjectKind,
+  KeyVaultObjectAttributes,
+  KeyVaultDataItem,
+} from "./keyvault";
+
 export interface RecoveryVault {
   id: string;
   name: string;

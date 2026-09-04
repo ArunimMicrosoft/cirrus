@@ -6,7 +6,8 @@
 import type { AzureSubscription } from "./azure/types";
 import { getOfflineEstate } from "./hooks/use-offline";
 import { offlineSubscription, resolveEstateList, resolveEstateSingle } from "./offline/estate";
-import { demoInstanceView, demoMetrics, demoCost, demoArmList, demoGraph } from "./offline/demo-api";
+import { demoInstanceView, demoMetrics, demoCost, demoArmList, demoGraph, demoVaultObjects } from "./offline/demo-api";
+import type { KeyVaultDataItem, KeyVaultObjectKind } from "./azure/keyvault";
 
 const OFFLINE_LIVE_ONLY = (feature: string) =>
   new Error(
@@ -136,7 +137,9 @@ async function jsonFetch<T>(
     },
   });
   if (!resp.ok) {
-    throw await parseError(resp);
+    const err = await parseError(resp);
+    (err as { status?: number }).status = resp.status;
+    throw err;
   }
   if (resp.status === 204) return undefined as unknown as T;
   // Some misconfigured proxies return 200 with HTML — treat that as an error.
@@ -231,6 +234,27 @@ export const api = {
       `/api/arm/${encodeURIComponent(subscriptionId)}${
         armPath.startsWith("/") ? armPath : `/${armPath}`
       }?api-version=${encodeURIComponent(apiVersion)}&_paginate=1${encodeParams(params)}`,
+    );
+  },
+  /**
+   * Key Vault DATA-PLANE object list (keys / secrets / certificates metadata).
+   * `vaultUri` is the vault endpoint from ARM (properties.vaultUri), e.g.
+   * "https://my-vault.vault.azure.net/". Returns object metadata only — never
+   * secret/key values. Requires a data-plane role/access-policy on the vault.
+   */
+  vaultObjects: (
+    vaultUri: string,
+    kind: KeyVaultObjectKind,
+  ): Promise<{ value: KeyVaultDataItem[] }> => {
+    const estate = getOfflineEstate();
+    if (estate) {
+      if (estate.demo) {
+        return Promise.resolve({ value: demoVaultObjects(vaultUri, kind) as KeyVaultDataItem[] });
+      }
+      return Promise.reject(OFFLINE_LIVE_ONLY("Key Vault objects"));
+    }
+    return jsonFetch<{ value: KeyVaultDataItem[] }>(
+      `/api/keyvault?vault=${encodeURIComponent(vaultUri)}&kind=${encodeURIComponent(kind)}`,
     );
   },
   /**

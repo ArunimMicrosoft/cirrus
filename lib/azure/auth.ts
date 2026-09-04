@@ -38,6 +38,14 @@ export interface AccessToken {
 
 export const ARM_SCOPE = "https://management.azure.com/.default";
 export const GRAPH_SCOPE = "https://graph.microsoft.com/.default";
+/**
+ * Key Vault DATA-PLANE scope (audience https://vault.azure.net). This is a
+ * different audience from ARM — a Reader role on the management plane does NOT
+ * grant it. The sign-in identity also needs a data-plane grant on each vault
+ * (Key Vault Reader / "Key Vault Secrets User" / "Key Vault Crypto User", or a
+ * legacy access policy with get,list) to actually enumerate objects.
+ */
+export const KEYVAULT_SCOPE = "https://vault.azure.net/.default";
 /** Delegated ARM scope used by the device code flow (needs user_impersonation). */
 export const ARM_DELEGATED_SCOPE =
   "https://management.azure.com/user_impersonation offline_access openid profile";
@@ -284,6 +292,16 @@ export async function getArmTokenForSession(
   session: SessionPayload,
 ): Promise<AccessToken> {
   return getTokenForSession(session, { scope: ARM_SCOPE });
+}
+
+/**
+ * Convenience: Key Vault data-plane token for a session. Used only by the
+ * /api/keyvault proxy to read keys/secrets/certificates from `{vault}.vault.azure.net`.
+ */
+export async function getVaultTokenForSession(
+  session: SessionPayload,
+): Promise<AccessToken> {
+  return getTokenForSession(session, { scope: KEYVAULT_SCOPE });
 }
 
 /* ------------------------------------------------------------------
